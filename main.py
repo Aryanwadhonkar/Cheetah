@@ -275,4 +275,186 @@ async def send_file(client: Client, message: Message):
         try:
             parts = message.text.split("_")
             if len(parts) < 3:
-                return await message.reply("
+                return await message.reply("❌ Invalid link")
+            
+            file_type = parts[0].split()[1]
+            file_ids = parts[1].split("_")
+            token = parts[2]
+            
+            if not is_token_valid(token):
+                return await message.reply("🔒 Token expired or invalid. Use /token to get a new one.")
+            
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            messages = []
+            
+            for file_id in file_ids:
+                cursor.execute(
+                    'SELECT message_id FROM files WHERE file_id = ?',
+                    (file_id,)
+                )
+                result = cursor.fetchone()
+                if not result:
+                    continue
+                
+                msg_id = result[0]
+                try:
+                    msg = await client.get_messages(DB_CHANNEL_ID, msg_id)
+                    messages.append(msg)
+                except Exception as e:
+                    logger.error(f"Error retrieving file {file_id}: {e}")
+            
+            if not messages:
+                conn.close()
+                return await message.reply("❌ Files not found")
+            
+            # Send files with restricted forwarding and auto-delete
+            for msg in messages:
+                try:
+                    sent_msg = await msg.copy(
+                        message.chat.id,
+                        caption=msg.caption,
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("🔗 Get New Link", url=f"https://t.me/{client.me.username}?start=token")]
+                        ]) if token != "admin" else None
+                    )
+                    
+                    # Schedule auto-delete
+                    delete_time = (datetime.now() + timedelta(minutes=AUTO_DELETE_MINUTES)).timestamp()
+                    cursor.execute(
+                        'INSERT OR REPLACE INTO scheduled_deletes (chat_id, message_id, delete_time) VALUES (?, ?, ?)',
+                        (message.chat.id, sent_msg.id, delete_time)
+                    )
+                    
+                    await asyncio.sleep(0.3)  # Add slight delay
+                except FloodWait as e:
+                    await asyncio.sleep(e.value)
+                except Exception as e:
+                    logger.error(f"Error sending file: {e}")
+            
+            # Update user last active
+            cursor.execute(
+                'UPDATE users SET last_active = ? WHERE user_id = ?',
+                (datetime.now().timestamp(), str(message.from_user.id))
+            
+            conn.commit()
+            conn.close()
+            
+        except Exception as e:
+            logger.error(f"Error in file access: {e}")
+            await message.reply("❌ Failed to retrieve files. Please try again.")
+            try:
+                conn.close()
+            except:
+                pass
+
+# Optimized broadcast with chunking
+@app.on_message(filters.command("broadcast") & filters.private & filters.user(ADMINS))
+async def broadcast(client: Client, message: Message):
+    if not message.reply_to_message:
+        return await message.reply("ℹ️ Please reply to a message to broadcast")
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute('SELECT user_id FROM users')
+        users = [row[0] for row in cursor.fetchall()]
+        total = len(users)
+        success = 0
+        failed = 0
+        
+        status = await message.reply(f"📢 Broadcasting to {total} users... (0%)")
+        
+        # Process in chunks
+        for i in range(0, total, BROADCAST_CHUNK_SIZE):
+            chunk = users[i:i + BROADCAST_CHUNK_SIZE]
+            chunk_success = 0
+            chunk_failed = 0
+            
+            # Use gather for concurrent sending
+            tasks = []
+            for user_id in chunk:
+                tasks.append(
+                    send_broadcast_chunk(client, message.reply_to_message, user_id)
+                )
+            
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            for result in results:
+                if result is True:
+                    chunk_success += 1
+                else:
+                    chunk_failed += 1
+            
+            success += chunk_success
+            failed += chunk_failed
+            
+            # Update status
+            progress = (i + BROADCAST_CHUNK_SIZE) / total * 100
+            if progress > 100:
+                progress = 100
+            
+            await status.edit_text(
+                f"📢 Broadcast progress:\n"
+                f"✅ Success: {success}\n"
+                f"❌ Failed: {failed}\n"
+                f"📊 Total: {total}\n"
+                f"⏳ {progress:.1f}% complete"
+            )
+            
+            # Small delay between chunks
+            await asyncio.sleep(1)
+        
+        # Clean up inactive users
+        cursor.execute('DELETE FROM users WHERE user_id IN (SELECT user_id FROM tokens WHERE expires < ?)',
+                      (datetime.now().timestamp(),))
+        conn.commit()
+        
+        await status.edit_text(
+            f"📢 Broadcast completed!\n"
+            f"✅ Success: {success}\n"
+            f"❌ Failed: {failed}\n"
+            f"📊 Total: {total}"
+        )
+        
+    except Exception as e:
+        logger.error(f"Broadcast error: {e}")
+        await message.reply("❌ Broadcast failed. Check logs for details.")
+    finally:
+        conn.close()
+
+async def send_broadcast_chunk(client, message, user_id):
+    try:
+        await message.copy(int(user_id))
+        
+        # Update last active
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            'UPDATE users SET last_active = ? WHERE user_id = ?',
+            (datetime.now().timestamp(), user_id))
+        conn.commit()
+        conn.close()
+        
+        return True
+    except (UserIsBlocked, InputUserDeactivated, PeerIdInvalid, ChannelPrivate):
+        return False
+    except FloodWait as e:
+        await asyncio.sleep(e.value)
+        return False
+    except Exception as e:
+        logger.error(f"Error sending to {user_id}: {e}")
+        return False
+
+# Start the bot with error handling
+if __name__ == "__main__":
+    logger.info("Starting optimized bot...")
+    
+    while True:
+        try:
+            app.run()
+        except Exception as e:
+            logger.error(f"Bot crashed: {e}")
+            logger.info("Restarting in 10 seconds...")
+            time.sleep(10)
