@@ -13,13 +13,13 @@
 
 ⚙️Key Features Added
 Feature	Implementation
-Auto-delete	Files auto-delete after AUTO_DELETE minutes (configurable in .env).
-URL Shortener	Token links are shortened using shorten_url() (set API in .env).
-Force-subscribe	Users must join FORCE_SUB channel before using the bot.
-24-hour Tokens	Non-premium users get tokens that expire after 24 hours.
-Premium Members	Admins can whitelist users with /premium.
-Admin Commands	/broadcast, /ban, /stats, /restart, etc.
-Credit Enforcement	Bot crashes if credit is removed (check CREDIT variable).
+Auto-delete          Files auto-delete after AUTO_DELETE minutes (configurable in .env).
+URL Shortener	       Token links are shortened using shorten_url() (set API in .env).
+Force-subscribe	     Users must join FORCE_SUB channel before using the bot.
+24-hour Tokens	     Non-premium users get tokens that expire after 24 hours.
+Premium Members	     Admins can whitelist users with /premium.
+Admin Commands	     /broadcast, /ban, /stats, /restart, etc.
+Credit Enforcement	 Bot crashes if credit is removed (check CREDIT variable).
 
 🗣️🔥 Core Features
 
