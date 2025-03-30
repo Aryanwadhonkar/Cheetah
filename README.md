@@ -162,4 +162,69 @@ tail -n 50 nohup.out  # Or your log file
 
 
 ##can be deployed on koyeb,heroku,vps,termux,etc
+🚀 Termux Deployment Guide
+# 1. UPDATE SYSTEM & INSTALL ESSENTIALS
+pkg update -y && pkg upgrade -y
+pkg install -y python git libjpeg-turbo libcrypt clang ffmpeg
+
+# 2. CONFIGURE PYTHON ENVIRONMENT
+export CC=clang  # Faster compilation
+python -m pip install --upgrade pip wheel
+
+# 3. CLONE REPOSITORY
+git clone https://github.com/Aryanwadhonkar/Cheetah.git
+cd Cheetah
+
+# 4. INSTALL REQUIREMENTS
+pip install --no-cache-dir -r requirements.txt
+
+# 5. SETUP ENVIRONMENT FILE
+cat > .env <<EOF
+API_ID=your_api_id_here
+API_HASH=your_api_hash_here
+BOT_TOKEN=your_bot_token_here
+DB_CHANNEL_ID=-1001234567890  # With -100 prefix
+ADMINS=123456789,987654321    # Your Telegram ID(s)
+FORCE_JOIN=0                  # Optional channel ID
+SHORTENER_API=your_key        # Optional
+SHORTENER_DOMAIN=your.domain  # Optional
+EOF
+
+# 6. RUN THE BOT (PERSISTENT)
+tmux new -s cheetah_bot
+python main.py
+
+# Press Ctrl+B then D to detach
+🔍 Verification Steps
+1.Check if bot is running:
+tmux attach -t cheetah_bot
+# Should see the ASCII art and "Bot started"
+2.Test bot functionality:
+Send /start to your bot in Telegram
+Admins can test /getlink by replying to a file
+
+⚠️ Troubleshooting
+Issue.                             Solution
+Missing dependencies.           Run pkg install libjpeg-turbo clang and reinstall requirements
+FloodWait errors.               Increase REQUEST_DELAY in main.py (line 36)
+Bot not responding.            Check logs with tail -n 50 nohup.out 
+Termux closing bot.            Use termux-wake-lock before starting
+
+🔄 Updating the Bot
+1.For better performance:
+export PYTHONOPTIMIZE=1  # Before starting bot
+2.Auto-restart on crash (create start.sh):
+#!/bin/bash
+while true; do
+    python main.py
+    sleep 10
+done
+then run:
+chmod +x start.sh
+tmux new -s cheetah_bot ./start.sh
+3.monitor resources usage:
+watch -n 1 'ps -o pid,%cpu,%mem,cmd -C python'
+
+
+
 
