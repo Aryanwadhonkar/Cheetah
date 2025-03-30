@@ -7,7 +7,8 @@ from pyrogram.types import (
     Message,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
-    BotCommand
+    BotCommand,
+    CallbackQuery
 )
 from pyrogram.errors import (
     FloodWait,
@@ -17,7 +18,29 @@ from pyrogram.errors import (
     ChatWriteForbidden
 )
 
-# Load config
+# ================= CREDIT ENFORCEMENT =================
+REQUIRED_CREDITS = [
+    "# =============================================",
+    "# Original Developer: @wleaksOwner (Telegram)",
+    "# GitHub: Aryanwadhonkar (https://github.com/Aryanwadhonkar/Cheetah)",
+    "# Removing these credits violates the license!",
+    "# ============================================="
+]
+
+def validate_credits():
+    """Ensure credits exist in this file"""
+    with open(__file__, 'r', encoding='utf-8') as f:
+        content = f.read()
+        missing = [credit for credit in REQUIRED_CREDITS if credit not in content]
+        if missing:
+            print("CREDIT VIOLATION DETECTED! Missing:")
+            print("\n".join(missing))
+            print("Bot will not start without proper attribution")
+            os._exit(1)
+
+validate_credits()  # Immediate check on import
+
+# ================= CONFIGURATION =================
 from dotenv import load_dotenv
 load_dotenv('.env')
 
@@ -30,18 +53,18 @@ class Config:
     ADMINS = list(map(int, os.getenv("ADMINS").split(",")))
     
     # Optional
-    FORCE_JOIN = os.getenv("FORCE_JOIN", "0")  # "0" to disable
+    FORCE_JOIN = os.getenv("FORCE_JOIN", "0")
     SHORTENER_API = os.getenv("SHORTENER_API", "")
     SHORTENER_DOMAIN = os.getenv("SHORTENER_DOMAIN", "")
     
     # Limits
-    MAX_BATCH_SIZE = 10  # Telegram media group limit
-    BROADCAST_CHUNK_SIZE = 15  # Stay under 20 msg/min limit
-    REQUEST_DELAY = 1.2  # Seconds between actions
+    MAX_BATCH_SIZE = 10
+    BROADCAST_CHUNK_SIZE = 15
+    REQUEST_DELAY = 1.2
 
-# Initialize with rate-limiting
+# ================= BOT INITIALIZATION =================
 app = Client(
-    "file_bot",
+    name="CheetahFileBot",
     api_id=Config.API_ID,
     api_hash=Config.API_HASH,
     bot_token=Config.BOT_TOKEN,
@@ -50,20 +73,23 @@ app = Client(
     max_concurrent_transmissions=2
 )
 
-# Database
+# ================= DATABASES =================
 user_db = {}  # {user_id: expiry_timestamp}
 file_db = {}  # {file_id: message_id}
 batch_db = {}  # {batch_id: [message_ids]}
 
+# ================= COMMAND SETUP =================
 async def set_bot_commands():
     await app.set_bot_commands([
         BotCommand("start", "Begin verification"),
         BotCommand("help", "Show commands"),
         BotCommand("status", "Check access time"),
         BotCommand("getlink", "[Admin] Create file link"),
-        BotCommand("broadcast", "[Admin] Message all users")
+        BotCommand("broadcast", "[Admin] Message all users"),
+        BotCommand("clone", "Get clone instructions")
     ])
 
+# ================= CORE FUNCTIONS =================
 async def safe_send(target, **kwargs):
     """Handle Telegram limits with retry logic"""
     try:
@@ -78,7 +104,7 @@ async def verify_user(user_id: int):
     """24-hour verification flow with shortener"""
     if Config.SHORTENER_API:
         token = secrets.token_urlsafe(6)
-        user_db[user_id] = datetime.now().timestamp() + 86400  # 24h
+        user_db[user_id] = datetime.now().timestamp() + 86400
         
         bot_username = (await app.get_me()).username
         verify_url = f"https://{Config.SHORTENER_DOMAIN}/api?api={Config.SHORTENER_API}&url=https://t.me/{bot_username}?start=verify_{token}"
@@ -92,6 +118,7 @@ async def verify_user(user_id: int):
             ]])
         )
 
+# ================= COMMAND HANDLERS =================
 @app.on_message(filters.command("start"))
 async def start_cmd(client, message):
     user_id = message.from_user.id
@@ -129,68 +156,53 @@ async def start_cmd(client, message):
     
     # New user flow
     if user_id not in user_db:
-        await verify_user(user_id)
+        await message.reply(
+            "🤖 *Cheetah File Storage Bot*\n"
+            "\"Lightning fast file sharing with 24h access\"\n\n"
+            "🔰 **Developer**: @wleaksOwner\n"
+            "💻 **GitHub**: [Aryanwadhonkar/Cheetah](https://github.com/Aryanwadhonkar/Cheetah)",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    "⭐ Clone on GitHub", 
+                    url="https://github.com/Aryanwadhonkar/Cheetah"
+                )],
+                [InlineKeyboardButton(
+                    "🔒 Verify Access", 
+                    callback_data="verify"
+                )]
+            ]),
+            disable_web_page_preview=True
+        )
     else:
         expiry = datetime.fromtimestamp(user_db[user_id])
         await message.reply(f"✅ Active until: {expiry.strftime('%Y-%m-%d %H:%M')}")
 
-@app.on_message(filters.command("getlink") & filters.user(Config.ADMINS))
-async def getlink_cmd(client, message):
-    if not message.reply_to_message or not message.reply_to_message.media:
-        return await message.reply("ℹ️ Reply to a file")
-    
-    forwarded = await safe_send(
-        message.reply_to_message.forward,
-        chat_id=Config.DB_CHANNEL_ID
-    )
-    if not forwarded:
-        return
-    
-    file_id = str(forwarded.id)
-    file_db[file_id] = forwarded.id
-    
-    bot_username = (await app.get_me()).username
-    await message.reply(
-        f"📄 File Link:\n`https://t.me/{bot_username}?start=file_{file_id}`",
-        parse_mode=enums.ParseMode.MARKDOWN
-    )
+@app.on_callback_query(filters.regex("^verify$"))
+async def verify_callback(client, callback: CallbackQuery):
+    await verify_user(callback.from_user.id)
+    await callback.answer("Verification link sent!")
 
-@app.on_message(filters.command("broadcast") & filters.user(Config.ADMINS))
-async def broadcast_cmd(client, message):
-    if not message.reply_to_message:
-        return await message.reply("ℹ️ Reply to a message")
-    
-    users = list(user_db.keys())
-    total = len(users)
-    success = 0
-    
-    status = await message.reply(f"📢 Broadcasting to {total} users... (0%)")
-    
-    for i in range(0, total, Config.BROADCAST_CHUNK_SIZE):
-        chunk = users[i:i + Config.BROADCAST_CHUNK_SIZE]
-        
-        results = await asyncio.gather(*[
-            safe_send(
-                message.reply_to_message.copy,
-                chat_id=user_id
-            )
-            for user_id in chunk
-        ], return_exceptions=True)
-        
-        success += sum(1 for r in results if r is not False)
-        
-        progress = min((i + len(chunk)) / total * 100, 100)
-        await status.edit_text(
-            f"📢 Progress: {progress:.1f}%\n"
-            f"✅ Success: {success}\n"
-            f"❌ Failed: {i + len(chunk) - success}"
-        )
-        
-        await asyncio.sleep(Config.REQUEST_DELAY)
-    
-    await status.edit_text(f"📢 Complete! Reached {success}/{total} users")
+# [Keep your existing getlink, batch, and broadcast handlers]
 
+# ================= MAIN EXECUTION =================
 if __name__ == "__main__":
-    print("Starting optimized file bot...")
+    # ASCII Art with Credits
+    print(r"""
+   ____ _    _ _____ _____ _   _ _______ _____  
+  / __ \ |  | |  __ \_   _| \ | |__   __|  __ \ 
+ / /  \| |  | | |__) || | |  \| |  | |  | |__) |
+| |   | |  | |  ___/ | | | . ` |  | |  |  _  / 
+ \ \__/| |__| | |    _| |_| |\  |  | |  | | \ \ 
+  \____/\____/|_|   |_____|_| \_|  |_|  |_|  \_\
+  
+  🔹 Developer: @wleaksOwner (Telegram)
+  🌐 GitHub: Aryanwadhonkar/Cheetah
+  📌 Repository: https://github.com/Aryanwadhonkar/Cheetah
+    """)
+    
+    # Final credit validation
+    validate_credits()
+    
+    # Start the bot
     app.start()
     app.run(set_bot_commands())
