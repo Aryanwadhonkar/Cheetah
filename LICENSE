@@ -1,0 +1,39 @@
+MIT License
+
+Copyright (c) 2023 Aryan Wadhonkar (@wleaksOwner)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, subject to the following conditions:
+
+1. **Credit Requirement**: 
+   - The original copyright notice (this doc) and the following attribution 
+     must be included in all copies or substantial portions of the Software:
+     - "Original Developer: @wleaksOwner (Telegram)"
+     - "GitHub: https://github.com/Aryanwadhonkar/Cheetah"
+
+2. **Code Integrity**:
+   - The credit validation system in main.py must remain functional
+   - Any removal of credit lines will render the software inoperable
+
+3. **Commercial Use**:
+   - Commercial use requires written permission from the copyright holder
+   - Monetization through Telegram bots requires attribution in the bot's /start command
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+**Additional Terms for Bot Clones:**
+- The bot's /start command must visibly display:
+  - "Original Developer: @wleaksOwner"
+  - Link to this repository
+- The repository fork must maintain all credit references
+- Any modifications must not circumvent the credit validation system
