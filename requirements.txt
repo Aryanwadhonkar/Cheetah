@@ -1,28 +1,4 @@
-pyrogram>=2.0.0
-tgcrypto>=1.2.2
-python-dotenv>=0.19.0
-requests>=2.26.0
-#sqlite3>=3.35.0  Usually included in Python standard library use this if necessary 
-python-dateutil>=2.8.2
-aiohttp>=3.8.0  # For async HTTP requests
-APScheduler>=3.9.0  # For advanced scheduling tasks
-
-
-#If you need a newer SQLite version:
-# 1. Upgrade Termux packages
-#pkg upgrade -y
-# 2. Reinstall Python
-#pkg install python -y
-# 3. Check SQLite version
-#python -c "import sqlite3; print(sqlite3.sqlite_version)"
-# Should show ≥3.35.0 in Termux
-
-#for other platforms
-# Linux/macOS:
-#brew upgrade sqlite  # macOS
-#sudo apt install sqlite3 libsqlite3-dev  # Debian/Ubuntu
-
-# Windows:
-#Download from https://sqlite.org/download.html
-
-
+python-dotenv
+python-telegram-bot==20.3
+pytz
+requests
