@@ -1,0 +1,4 @@
+start - Get started
+help - Show help
+shorten - [Admin] Create shareable link
+batch - [Admin] Upload multiple files
