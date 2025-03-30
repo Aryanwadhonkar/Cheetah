@@ -1,4 +1,4 @@
+pyrogram>=2.0.0
 python-dotenv
-python-telegram-bot==20.3
-pytz
 requests
+sqlite3
