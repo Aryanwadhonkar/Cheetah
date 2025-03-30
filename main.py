@@ -1,111 +1,104 @@
 import os
-import asyncio
-import logging
-import sqlite3
-from datetime import datetime
+import hashlib
+import secrets
+from datetime import datetime, timedelta
 from pyrogram import Client, filters, enums
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.errors import FloodWait
 
-# Minimal configuration
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-# Load config
+# Configuration
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DB_CHANNEL_ID = int(os.getenv("DB_CHANNEL_ID"))
 ADMINS = [int(admin) for admin in os.getenv("ADMINS").split(",")]
-BROADCAST_CHUNK_SIZE = int(os.getenv("BROADCAST_CHUNK_SIZE", 20))  # Default chunk size
+SHORTENER_API = os.getenv("SHORTENER_API")  # Your shortener API key
+SHORTENER_DOMAIN = os.getenv("SHORTENER_DOMAIN")  # e.g. "example.com"
+TOKEN_EXPIRE_HOURS = 24
 
-# Simple SQLite setup
-def init_db():
-    with sqlite3.connect('filedb.db') as conn:
-        conn.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            last_active REAL
-        )''')
+# In-memory token storage (replace with DB in production)
+active_tokens = {}
 
-init_db()
-
-# Optimized broadcast function
-async def broadcast(client: Client, message: Message):
-    if not message.reply_to_message:
-        await message.reply("Reply to a message to broadcast")
-        return
-
-    with sqlite3.connect('filedb.db') as conn:
-        users = [row[0] for row in conn.execute("SELECT user_id FROM users")]
+def generate_shortlink(file_id: str) -> str:
+    """Generate monetized shortlink with 24h token"""
+    token = secrets.token_urlsafe(16)
+    expiry = datetime.now() + timedelta(hours=TOKEN_EXPIRE_HOURS)
     
-    total = len(users)
-    success = 0
+    # Store token
+    active_tokens[token] = {
+        "file_id": file_id,
+        "expiry": expiry
+    }
     
-    status = await message.reply(f"Broadcasting to {total} users...")
+    # Generate shortlink
+    base_url = f"https://t.me/{Client.me.username}?start=file_{file_id}_{token}"
     
-    for i in range(0, total, BROADCAST_CHUNK_SIZE):
-        chunk = users[i:i + BROADCAST_CHUNK_SIZE]
-        
-        # Process chunk with error handling
+    if SHORTENER_API and SHORTENER_DOMAIN:
+        import requests
         try:
-            await asyncio.gather(*[
-                send_message(client, message.reply_to_message, user_id)
-                for user_id in chunk
-            ])
-            success += len(chunk)
-        except FloodWait as e:
-            await asyncio.sleep(e.value)
-        except Exception as e:
-            logger.error(f"Chunk failed: {e}")
-        
-        # Update progress
-        if i % 50 == 0:  # Update every 50 users to reduce load
-            await status.edit_text(
-                f"Progress: {i + len(chunk)}/{total}\n"
-                f"Success: {success}"
+            response = requests.get(
+                f"https://{SHORTENER_DOMAIN}/api?api={SHORTENER_API}&url={base_url}"
             )
+            return response.json().get("shortenedUrl", base_url)
+        except:
+            return base_url
+    return base_url
+
+@app.on_message(filters.command("shorten") & filters.private)
+async def shorten_command(client: Client, message: Message):
+    """Generate a monetized shortlink"""
+    if not message.reply_to_message or not message.reply_to_message.media:
+        await message.reply("Reply to a media file to generate shortlink")
+        return
     
-    await status.edit_text(f"✅ Broadcast complete!\nSent to {success}/{total} users")
+    # Forward file to DB channel
+    forwarded = await message.reply_to_message.forward(DB_CHANNEL_ID)
+    file_id = str(forwarded.id)
+    
+    # Generate shortlink
+    shortlink = generate_shortlink(file_id)
+    
+    await message.reply(
+        f"🔗 Monetized Shortlink (24h):\n{shortlink}",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("💰 Earn Now", url=shortlink)]
+        ])
+    )
 
-async def send_message(client: Client, message: Message, user_id: int):
+@app.on_message(filters.regex(r"^/start file_") & filters.private)
+async def handle_token_access(client: Client, message: Message):
+    """Verify token and grant access"""
+    _, file_id, token = message.text.split("_")
+    
+    # Token validation
+    if token not in active_tokens:
+        await message.reply("❌ Invalid or expired token")
+        return
+    
+    if datetime.now() > active_tokens[token]["expiry"]:
+        await message.reply("⌛ Token expired")
+        del active_tokens[token]
+        return
+    
+    # Send file
     try:
-        await message.copy(user_id)
-        # Lightweight activity update
-        with sqlite3.connect('filedb.db') as conn:
-            conn.execute(
-                "UPDATE users SET last_active = ? WHERE user_id = ?",
-                (datetime.now().timestamp(), user_id)
-    except Exception:
-        pass  # Silent fail to keep broadcasting
-
-# Pyrogram client with essential settings
-app = Client(
-    "file_bot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN,
-    workers=10,  # Balanced for performance
-    sleep_threshold=30
-)
-
-# Command handlers
-@app.on_message(filters.command("broadcast") & filters.user(ADMINS))
-async def broadcast_cmd(client, message):
-    await broadcast(client, message)
-
-@app.on_message(filters.command("start"))
-async def start(client, message):
-    with sqlite3.connect('filedb.db') as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO users (user_id, last_active) VALUES (?, ?)",
-            (message.from_user.id, datetime.now().timestamp())
+        msg = await client.get_messages(DB_CHANNEL_ID, int(file_id))
+        await msg.copy(
+            message.chat.id,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Get New Token", callback_data="new_token")]
+            ])
         )
-    await message.reply("Bot started!")
+    except Exception as e:
+        await message.reply("❌ File access failed")
 
-if __name__ == "__main__":
-    logger.info("Starting optimized bot...")
-    app.run()
+# Callback for new tokens
+@app.on_callback_query(filters.regex("new_token"))
+async def new_token_callback(client, callback_query):
+    """Generate new monetized token"""
+    shortlink = generate_shortlink(callback_query.message.reply_to_message.id)
+    await callback_query.message.edit_text(
+        f"🔗 New Monetized Link (24h):\n{shortlink}",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("💰 Earn Again", url=shortlink)]
+        ])
+    )
