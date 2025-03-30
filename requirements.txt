@@ -6,3 +6,15 @@ requests>=2.26.0
 python-dateutil>=2.8.2
 aiohttp>=3.8.0  # For async HTTP requests
 APScheduler>=3.9.0  # For advanced scheduling tasks
+
+
+#If you need a newer SQLite version:
+# 1. Upgrade Termux packages
+#pkg upgrade -y
+
+# 2. Reinstall Python
+#pkg install python -y
+
+# 3. Check SQLite version
+#python -c "import sqlite3; print(sqlite3.sqlite_version)"
+# Should show ≥3.35.0 in Termux
