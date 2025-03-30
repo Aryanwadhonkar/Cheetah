@@ -1,293 +1,369 @@
 import os
-import time
 import logging
-import secrets
 import asyncio
-import requests
 from datetime import datetime, timedelta
-from typing import Optional, Dict
+from typing import Dict, List, Optional, Union
 
-# Timezone setup must come first
-os.environ['TZ'] = 'Asia/Kolkata'
-try:
-    time.tzset()
-except AttributeError:
-    # Windows compatibility fallback
-    pass
-
-import pytz
-from dotenv import load_dotenv
-from telegram import (
-    Update,
-    InputMediaDocument,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-    Message
+from pyrogram import Client, filters, enums
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.errors import (
+    FloodWait, 
+    UserIsBlocked, 
+    PeerIdInvalid, 
+    ChatWriteForbidden,
+    ChannelPrivate
 )
-from telegram.constants import ChatAction, ParseMode
-from telegram.error import TelegramError, BadRequest
-from telegram.ext import (
-    Application,
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    filters,
-    ContextTypes
-)
-from pymongo import MongoClient, IndexModel
-import certifi
 
-# Load environment variables
-load_dotenv()
+import shortener
+from database import Database
+from config import Config
 
-# Configure logging
+# ASCII Art
+CHEETAH_ART = """
+   ____ _    _ ______ _____ _______ _____ _    _ 
+  / ____| |  | |  ____|  __ \__   __|_   _| |  | |
+ | |    | |__| | |__  | |__) | | |    | | | |__| |
+ | |    |  __  |  __| |  _  /  | |    | | |  __  |
+ | |____| |  | | |____| | \ \  | |   _| |_| |  | |
+  \_____|_|  |_|______|_|  \_\ |_|  |_____|_|  |_|
+"""
+
+print(CHEETAH_ART)
+
+# Initialize logger
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Constants from .env
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMINS = [int(admin.strip()) for admin in os.getenv("ADMINS", "").split(",") if admin.strip()]
-CHANNEL_ID = int(os.getenv("CHANNEL_ID", "-1002348593955"))
-FORCE_SUB = os.getenv("FORCE_SUB", "0")
-AUTO_DELETE_TIME = int(os.getenv("AUTO_DELETE_TIME", "0"))
-PROTECT_CONTENT = os.getenv("PROTECT_CONTENT", "True").lower() == "true"
-TOKEN_EXPIRE_HOURS = int(os.getenv("TOKEN_EXPIRE_HOURS", "24"))
-MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://Wleakshere:Thunderstrikes27@wleakshere.api7w.mongodb.net/wleakfiles?retryWrites=true&w=majority")
-URL_SHORTENER_API = os.getenv("URL_SHORTENER_API")
-URL_SHORTENER_KEY = os.getenv("URL_SHORTENER_KEY")
-URL_SHORTENER_DOMAIN = os.getenv("URL_SHORTENER_DOMAIN")
-WHITELIST_IP = os.getenv("WHITELIST_IP", "")
+# Initialize Pyrogram client
+app = Client(
+    "CheetahBot",
+    api_id=Config.API_ID,
+    api_hash=Config.API_HASH,
+    bot_token=Config.BOT_TOKEN
+)
 
-# Timezone setup
-IST = pytz.timezone('Asia/Kolkata')
+# Initialize database
+db = Database()
 
-# MongoDB Connection with enhanced error handling
-try:
-    client = MongoClient(
-        MONGO_URI,
-        tlsCAFile=certifi.where(),
-        connectTimeoutMS=15000,
-        socketTimeoutMS=15000,
-        serverSelectionTimeoutMS=15000,
-        appName="CheetahBot-IST"
-    )
-    # Test connection immediately
-    client.admin.command('ping')
-    db = client.wleakfiles
-    users = db.users
-    tokens = db.tokens
-    files = db.files
-    premium = db.premium
-    
-    # Create indexes
-    tokens.create_index([("expiry", 1)], expireAfterSeconds=0)
-    logger.info("✅ MongoDB connected successfully!")
-except Exception as e:
-    logger.critical(f"❌ MongoDB connection failed: {e}")
-    # Fallback to in-memory storage
-    db, users, tokens, files, premium = None, {}, {}, {}, {}
-    logger.warning("⚠️ Using in-memory storage as fallback")
+# Helper functions
+async def is_admin(user_id: int) -> bool:
+    return str(user_id) in Config.ADMINS.split(',')
 
-# ASCII Art
-CHEETAH_ART = r"""
-   ____ _    _ _____ _____ _______ _    _ 
-  / ____| |  | |_   _|  __ \__   __| |  | |
- | |    | |__| | | | | |  | | | |  | |__| |
- | |    |  __  | | | | |  | | | |  |  __  |
- | |____| |  | |_| |_| |__| | | |  | |  | |
-  \_____|_|  |_|_____|_____/  |_|  |_|  |_|
-"""
-print(CHEETAH_ART)
-
-async def verify_ip():
-    """Check if current IP matches whitelist"""
-    if not WHITELIST_IP:
-        return True
-        
+async def save_file_to_channel(file: Union[Message, str]) -> int:
     try:
-        current_ip = requests.get('https://api.ipify.org', timeout=3).text
-        if current_ip != WHITELIST_IP:
-            logger.error(f"SECURITY ALERT: IP changed to {current_ip}")
-            return False
-        return True
-    except:
-        return True  # Fail open to avoid service disruption
-
-async def shorten_url(long_url: str) -> str:
-    """Secure URL shortening with proper headers"""
-    if not all([URL_SHORTENER_API, URL_SHORTENER_KEY, URL_SHORTENER_DOMAIN]):
-        return long_url
-    
-    try:
-        headers = {
-            "Authorization": f"Bearer {URL_SHORTENER_KEY}",
-            "Content-Type": "application/json"
-        }
-        data = {
-            "long_url": long_url,
-            "domain": URL_SHORTENER_DOMAIN,
-            "expire_after": f"{TOKEN_EXPIRE_HOURS}h"
-        }
-        response = requests.post(
-            URL_SHORTENER_API,
-            json=data,
-            headers=headers,
-            timeout=5
-        )
-        if response.status_code == 200:
-            return response.json().get("short_url", long_url)
+        if isinstance(file, Message):
+            msg = await file.copy(Config.DB_CHANNEL)
+        else:
+            msg = await app.send_message(Config.DB_CHANNEL, file)
+        return msg.id
     except Exception as e:
-        logger.error(f"URL shortening failed: {e}")
-    return long_url
+        logger.error(f"Error saving file to channel: {e}")
+        raise
 
-async def send_protected_file(update: Update, context: ContextTypes.DEFAULT_TYPE, file_id: str):
-    """Send file with auto-delete and protection"""
+async def generate_token(user_id: int) -> str:
+    token = os.urandom(16).hex()
+    expiry = datetime.now() + timedelta(hours=24)
+    await db.add_token(user_id, token, expiry)
+    return token
+
+async def verify_token(user_id: int, token: str) -> bool:
+    return await db.validate_token(user_id, token)
+
+async def get_file_message(file_id: int) -> Message:
+    return await app.get_messages(Config.DB_CHANNEL, file_id)
+
+async def send_log(message: str):
     try:
-        msg = await context.bot.send_document(
-            chat_id=update.effective_chat.id,
-            document=file_id,
-            protect_content=PROTECT_CONTENT,
-            caption="🔒 Access granted | Don't share this file",
-            parse_mode=ParseMode.HTML
-        )
-        
-        if AUTO_DELETE_TIME > 0:
-            await asyncio.sleep(AUTO_DELETE_TIME * 60)
+        await app.send_message(Config.DB_CHANNEL, message)
+    except Exception as e:
+        logger.error(f"Error sending log: {e}")
+
+# Command handlers
+@app.on_message(filters.command("start"))
+async def start(client: Client, message: Message):
+    user_id = message.from_user.id
+    if await is_admin(user_id):
+        text = "👑 **Admin Panel**\n\nCommands:\n/getlink - Store single file\n/firstbatch - Start batch upload\n/lastbatch - End batch upload\n/broadcast - Broadcast message\n/stats - Get bot stats\n/ban - Ban user\n/premiummembers - Manage premium\n/restart - Restart bot"
+    else:
+        if Config.FORCE_SUB and Config.FORCE_SUB != "0":
             try:
-                await msg.delete()
-                logger.info(f"Auto-deleted file for {update.effective_user.id}")
+                member = await client.get_chat_member(Config.FORCE_SUB, user_id)
+                if member.status in [enums.ChatMemberStatus.LEFT, enums.ChatMemberStatus.BANNED]:
+                    await message.reply("❗ Please join our channel first to use this bot.", 
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("Join Channel", url=f"https://t.me/{Config.FORCE_SUB}")]
+                        ]))
+                    return
             except Exception as e:
-                logger.error(f"Delete failed: {e}")
-    except Exception as e:
-        logger.error(f"File send failed: {e}")
-        await update.message.reply_text("⚠️ Failed to send file. Try again later.")
+                logger.error(f"Force sub check error: {e}")
+        
+        text = "🔐 **File Access Bot**\n\nTo access files, you need a valid token. Tokens expire after 24 hours.\n\nClick below to get your access token:"
+        reply_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Get Access Token", url=f"https://{Config.URL_SHORTENER_DOMAIN}/token")]
+        ])
+    
+    await message.reply(text, reply_markup=reply_markup if not await is_admin(user_id) else None)
 
-async def verify_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Token verification handler with IP checks"""
-    if not await verify_ip():
-        await update.message.reply_text("⚠️ Service temporarily unavailable")
+@app.on_message(filters.command("getlink") & filters.private)
+async def get_link(client: Client, message: Message):
+    if not await is_admin(message.from_user.id):
+        await message.reply("❌ Only admins can use this command.")
         return
     
-    user = update.effective_user
-    args = context.args or []
-    
-    if len(args) < 1:
-        await update.message.reply_text("Invalid link format")
+    if not message.reply_to_message or not message.reply_to_message.media:
+        await message.reply("❗ Reply to a media file with this command.")
         return
     
-    file_id = args[0]
-    
-    # Admin/Premium bypass
-    if user.id in ADMINS or (db and premium.find_one({"user_id": user.id})):
-        await send_protected_file(update, context, file_id)
+    try:
+        file_id = await save_file_to_channel(message.reply_to_message)
+        file_link = f"https://t.me/{client.me.username}?start=file_{file_id}"
+        await message.reply(f"🔗 File Link:\n\n{file_link}")
+        await send_log(f"📁 New file stored by admin {message.from_user.id}\nFile ID: {file_id}")
+    except Exception as e:
+        await message.reply(f"❌ Error: {e}")
+
+@app.on_message(filters.command(["firstbatch", "lastbatch"]) & filters.private)
+async def batch_upload(client: Client, message: Message):
+    if not await is_admin(message.from_user.id):
+        await message.reply("❌ Only admins can use this command.")
         return
     
-    # Token verification
-    if len(args) > 1 and db:
-        token = args[1]
-        if tokens.find_one({"user_id": user.id, "token": token, "expiry": {"$gt": datetime.now(IST)}}):
-            await send_protected_file(update, context, file_id)
+    user_id = message.from_user.id
+    command = message.command[0]
+    
+    if command == "firstbatch":
+        await db.start_batch(user_id)
+        await message.reply("📦 Batch upload started. Send all files now and use /lastbatch when done.")
+    else:
+        batch_files = await db.get_batch(user_id)
+        if not batch_files:
+            await message.reply("❗ No batch upload in progress.")
+            return
+        
+        file_ids = []
+        for file_msg in batch_files:
+            try:
+                file_id = await save_file_to_channel(file_msg)
+                file_ids.append(file_id)
+            except Exception as e:
+                logger.error(f"Error saving batch file: {e}")
+                continue
+        
+        batch_link = f"https://t.me/{client.me.username}?start=batch_{'_'.join(map(str, file_ids))}"
+        await message.reply(f"📦 Batch Files Link:\n\n{batch_link}")
+        await send_log(f"📦 New batch stored by admin {user_id}\nFile IDs: {file_ids}")
+        await db.clear_batch(user_id)
+
+@app.on_message(filters.command("broadcast") & filters.private)
+async def broadcast(client: Client, message: Message):
+    if not await is_admin(message.from_user.id):
+        await message.reply("❌ Only admins can use this command.")
+        return
+    
+    if not message.reply_to_message:
+        await message.reply("❗ Reply to a message with this command to broadcast it.")
+        return
+    
+    users = await db.get_all_users()
+    total = len(users)
+    success = 0
+    
+    await message.reply(f"📢 Starting broadcast to {total} users...")
+    
+    for user_id in users:
+        try:
+            await message.reply_to_message.copy(user_id)
+            success += 1
+            await asyncio.sleep(0.5)  # Avoid flood
+        except (UserIsBlocked, PeerIdInvalid, ChannelPrivate):
+            await db.delete_user(user_id)
+        except FloodWait as e:
+            await asyncio.sleep(e.value)
+        except Exception as e:
+            logger.error(f"Broadcast error to {user_id}: {e}")
+    
+    await message.reply(f"✅ Broadcast completed.\nSuccess: {success}\nFailed: {total - success}")
+
+@app.on_message(filters.command("stats") & filters.private)
+async def stats(client: Client, message: Message):
+    if not await is_admin(message.from_user.id):
+        await message.reply("❌ Only admins can use this command.")
+        return
+    
+    total_users = await db.total_users_count()
+    total_files = await db.total_files_count()
+    active_tokens = await db.active_tokens_count()
+    premium_users = await db.premium_users_count()
+    
+    stats_text = f"""
+📊 **Bot Statistics**
+
+👥 Total Users: {total_users}
+⭐ Premium Users: {premium_users}
+🗃️ Total Files: {total_files}
+🔑 Active Tokens: {active_tokens}
+"""
+    await message.reply(stats_text)
+
+@app.on_message(filters.command("ban") & filters.private)
+async def ban_user(client: Client, message: Message):
+    if not await is_admin(message.from_user.id):
+        await message.reply("❌ Only admins can use this command.")
+        return
+    
+    if len(message.command) < 2:
+        await message.reply("❗ Usage: /ban <user_id>")
+        return
+    
+    try:
+        user_id = int(message.command[1])
+        await db.ban_user(user_id)
+        await message.reply(f"✅ User {user_id} banned successfully.")
+        await send_log(f"🔨 User {user_id} banned by admin {message.from_user.id}")
+    except ValueError:
+        await message.reply("❗ Invalid user ID.")
+    except Exception as e:
+        await message.reply(f"❌ Error: {e}")
+
+@app.on_message(filters.command("premiummembers") & filters.private)
+async def premium_members(client: Client, message: Message):
+    if not await is_admin(message.from_user.id):
+        await message.reply("❌ Only admins can use this command.")
+        return
+    
+    if len(message.command) < 3:
+        await message.reply("❗ Usage: /premiummembers <add/remove/list> <user_id>")
+        return
+    
+    action = message.command[1].lower()
+    
+    if action == "list":
+        premium_users = await db.get_premium_users()
+        if not premium_users:
+            await message.reply("No premium users found.")
+            return
+        
+        users_text = "\n".join([f"• {user_id}" for user_id in premium_users])
+        await message.reply(f"⭐ Premium Users:\n\n{users_text}")
+        return
+    
+    try:
+        user_id = int(message.command[2])
+        if action == "add":
+            await db.add_premium_user(user_id)
+            await message.reply(f"✅ User {user_id} added to premium.")
+            await send_log(f"⭐ User {user_id} added to premium by admin {message.from_user.id}")
+        elif action == "remove":
+            await db.remove_premium_user(user_id)
+            await message.reply(f"✅ User {user_id} removed from premium.")
+            await send_log(f"⭐ User {user_id} removed from premium by admin {message.from_user.id}")
+        else:
+            await message.reply("❗ Invalid action. Use add/remove/list.")
+    except ValueError:
+        await message.reply("❗ Invalid user ID.")
+    except Exception as e:
+        await message.reply(f"❌ Error: {e}")
+
+@app.on_message(filters.command("restart") & filters.private)
+async def restart_bot(client: Client, message: Message):
+    if not await is_admin(message.from_user.id):
+        await message.reply("❌ Only admins can use this command.")
+        return
+    
+    await message.reply("🔄 Restarting bot...")
+    await send_log(f"🔃 Bot restarted by admin {message.from_user.id}")
+    os.execv(sys.executable, [sys.executable, '-m', 'bot'])
+
+@app.on_message(filters.command("language") & filters.private)
+async def change_language(client: Client, message: Message):
+    # Placeholder for language functionality
+    await message.reply("🌐 Language settings will be available in future updates.")
+
+# Handle file access
+@app.on_message(filters.private & filters.regex(r'^/start (file|batch)_'))
+async def handle_file_access(client: Client, message: Message):
+    user_id = message.from_user.id
+    parts = message.text.split('_')
+    access_type = parts[0].split(' ')[1]
+    ids = parts[1]
+    
+    # Check premium status
+    is_premium = await db.is_premium_user(user_id)
+    
+    if not is_premium:
+        # Check token for non-premium users
+        if not await db.has_valid_token(user_id):
+            await message.reply("🔒 Your access token has expired. Please get a new one.", 
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Get New Token", url=f"https://{Config.URL_SHORTENER_DOMAIN}/token")]
+                ]))
             return
     
-    # Generate new token
-    new_token = secrets.token_urlsafe(16)
-    if db:
-        tokens.insert_one({
-            "user_id": user.id,
-            "token": new_token,
-            "expiry": datetime.now(IST) + timedelta(hours=TOKEN_EXPIRE_HOURS),
-            "ip": WHITELIST_IP
-        })
-    
-    verification_url = await shorten_url(
-        f"https://t.me/{context.bot.username}?start={file_id}_{new_token}"
-    )
-    
-    await update.message.reply_text(
-        f"🔐 <b>Verification Required</b>\n\n"
-        f"<a href='{verification_url}'>Click here to verify</a>\n"
-        f"Token valid for {TOKEN_EXPIRE_HOURS} hours\n\n"
-        f"<i>Server Time: {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S %Z')}</i>",
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True
-    )
-
-async def getlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Secure file upload handler"""
-    if update.effective_user.id not in ADMINS:
-        await update.message.reply_text("❌ Admin access required")
-        return
-    
     try:
-        file = update.message.reply_to_message.document
-        msg = await context.bot.send_document(
-            chat_id=CHANNEL_ID,
-            document=file.file_id,
-            caption=f"📁 {file.file_name}\n⬆️ Uploaded by @{update.effective_user.username}\n"
-                   f"🕒 {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S %Z')}"
-        )
-        
-        if db:
-            files.insert_one({
-                "file_id": file.file_id,
-                "message_id": msg.message_id,
-                "uploader": update.effective_user.id,
-                "timestamp": datetime.now(IST)
-            })
-        
-        access_url = f"https://t.me/{context.bot.username}?start={file.file_id}"
-        await update.message.reply_text(
-            f"✅ File stored!\n\n"
-            f"<code>{access_url}</code>\n\n"
-            f"<i>Expires in: {TOKEN_EXPIRE_HOURS} hours</i>",
-            parse_mode=ParseMode.HTML
-        )
-    except Exception as e:
-        logger.error(f"Upload failed: {e}")
-        await update.message.reply_text("⚠️ Failed to store file")
-
-async def maintenance_task():
-    """Background tasks with timezone awareness"""
-    while True:
-        try:
-            if db:
-                # Clean expired tokens
-                result = tokens.delete_many({"expiry": {"$lt": datetime.now(IST)}})
-                if result.deleted_count > 0:
-                    logger.info(f"Cleaned {result.deleted_count} expired tokens")
+        if access_type == "file":
+            file_id = int(ids)
+            file_msg = await get_file_message(file_id)
+            sent_msg = await file_msg.copy(user_id)
             
-            await asyncio.sleep(3600)  # Run hourly
-        except Exception as e:
-            logger.error(f"Maintenance task failed: {e}")
-            await asyncio.sleep(60)
-
-def main():
-    if not BOT_TOKEN:
-        logger.critical("❌ BOT_TOKEN not found in .env")
-        return
-    
-    # Initialize with timezone awareness
-    application = ApplicationBuilder() \
-        .token(BOT_TOKEN) \
-        .post_init(lambda _: asyncio.create_task(maintenance_task())) \
-        .build()
-    
-    # Handlers
-    application.add_handler(CommandHandler("start", verify_token))
-    application.add_handler(CommandHandler("getlink", getlink, filters.Document.ALL))
-    
-    # Error handler
-    application.add_error_handler(lambda u, c: logger.error(f"Update {u} caused error {c.error}"))
-    
-    logger.info(f"🤖 Bot starting at {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S %Z')}...")
-    application.run_polling()
-
-if __name__ == "__main__":
-    try:
-        main()
+            if Config.AUTO_DELETE and Config.AUTO_DELETE != "0":
+                await asyncio.sleep(int(Config.AUTO_DELETE) * 60)
+                try:
+                    await sent_msg.delete()
+                except Exception as e:
+                    logger.error(f"Error deleting auto-delete message: {e}")
+            
+        elif access_type == "batch":
+            file_ids = list(map(int, ids.split('_')))
+            for file_id in file_ids:
+                try:
+                    file_msg = await get_file_message(file_id)
+                    sent_msg = await file_msg.copy(user_id)
+                    
+                    if Config.AUTO_DELETE and Config.AUTO_DELETE != "0":
+                        await asyncio.sleep(int(Config.AUTO_DELETE) * 60)
+                        try:
+                            await sent_msg.delete()
+                        except Exception as e:
+                            logger.error(f"Error deleting auto-delete batch message: {e}")
+                    
+                    await asyncio.sleep(1)  # Avoid flood
+                except Exception as e:
+                    logger.error(f"Error sending batch file {file_id}: {e}")
+                    continue
+        
+        await send_log(f"📤 File(s) accessed by user {user_id} (Premium: {is_premium})")
     except Exception as e:
-        logger.critical(f"Fatal error: {e}", exc_info=True)
-        exit(1)
+        await message.reply(f"❌ Error accessing file: {e}")
+        logger.error(f"File access error: {e}")
+
+# Handle token verification from shortener
+@app.on_message(filters.private & filters.regex(r'^/verify '))
+async def verify_user_token(client: Client, message: Message):
+    token = message.text.split(' ')[1]
+    user_id = message.from_user.id
+    
+    if await verify_token(user_id, token):
+        await message.reply("✅ Token verified! You can now access files for 24 hours.")
+        await send_log(f"🔑 Token verified for user {user_id}")
+    else:
+        await message.reply("❌ Invalid or expired token. Please get a new one.")
+
+# Error handlers
+@app.on_errors()
+async def error_handler(client: Client, error: Exception, update: types.Update):
+    logger.error(f"Error: {error}", exc_info=True)
+    
+    if isinstance(error, FloodWait):
+        await asyncio.sleep(error.value)
+    elif isinstance(error, (UserIsBlocked, PeerIdInvalid, ChannelPrivate)):
+        await db.delete_user(update.from_user.id)
+    elif isinstance(error, ChatWriteForbidden):
+        logger.error("Bot doesn't have permission to write in chat")
+
+# Start the bot
+if __name__ == "__main__":
+    logger.info("Starting Cheetah File Store Bot...")
+    app.run()
