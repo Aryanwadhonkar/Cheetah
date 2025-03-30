@@ -1,6 +1,9 @@
 import os
 import time
 import logging
+import secrets
+import asyncio
+import requests
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
@@ -8,29 +11,19 @@ import pytz
 from dotenv import load_dotenv
 from telegram import (
     Update,
-    Chat,
-    ChatPermissions,
-    Message,
     InputMediaDocument,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
+    ChatPermissions
 )
-from telegram.constants import ChatAction, ChatMemberStatus, ChatType
-from telegram.error import (
-    TelegramError,
-    BadRequest,
-    Forbidden,
-    NetworkError,
-    RetryAfter,
-)
+from telegram.constants import ChatAction, ChatMemberStatus
+from telegram.error import TelegramError, BadRequest, Forbidden, RetryAfter
 from telegram.ext import (
     Application,
-    ApplicationBuilder,
     CommandHandler,
-    ContextTypes,
     MessageHandler,
     filters,
-    CallbackQueryHandler,
+    ContextTypes
 )
 from pymongo import MongoClient, IndexModel
 from pymongo.errors import PyMongoError
@@ -40,47 +33,43 @@ load_dotenv()
 
 # Configure logging
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Constants using your .env values
-TOKEN = "8065030018:AAHfT1hUGXg9kF64HCWotf7GLR-J77KEKAo"
-ADMINS = [1672634667]
-CHANNEL_ID = -1002348593955
-FORCE_SUB = "0"  # Force sub disabled
-AUTO_DELETE_TIME = 0  # Auto-delete disabled
-MONGO_URL = "mongodb+srv://Wleakshere:Thunderstrikes27@wleakshere.api7w.mongodb.net/?retryWrites=true&w=majority&appName=Wleakshere"
+# Constants
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMINS = list(map(int, os.getenv("ADMINS").split(",")))
+CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
+FORCE_SUB = os.getenv("FORCE_SUB", "0")
+AUTO_DELETE = int(os.getenv("AUTO_DELETE_TIME", 0))
+TOKEN_EXPIRE_HOURS = int(os.getenv("TOKEN_EXPIRE_HOURS", "24"))  # New variable
+MONGO_URL = os.getenv("DATABASE_URL")
+URL_SHORTENER_API = os.getenv("URL_SHORTENER_API")
+URL_SHORTENER_DOMAIN = os.getenv("URL_SHORTENER_DOMAIN")
+FORCE_SUB_TEXT = os.getenv("FORCE_SUB_TEXT", "🔹 Please join our channel to use this bot")  # Custom message
 
-# MongoDB setup with your specified database name
+# MongoDB Setup
 client = MongoClient(
     MONGO_URL,
-    tls=True,  # Enable TLS/SSL
-    tlsAllowInvalidCertificates=True,  # Only for testing, remove in production
+    tls=True,
     connectTimeoutMS=30000,
     socketTimeoutMS=30000,
     serverSelectionTimeoutMS=30000
 )
-db = client.get_database("wleakfiles")  # Using your specified database name
+db = client.wleakfiles
 
-# Collections setup with proper indexes
+# Collections
 users = db.users
 tokens = db.tokens
-file_links = db.file_links
+files = db.files
+premium = db.premium
 
 # Create indexes
-users.create_indexes([
-    IndexModel([("user_id", 1)], unique=True),
-    IndexModel([("is_premium", 1)]),
-    IndexModel([("is_banned", 1)])
-])
-
-tokens.create_indexes([
-    IndexModel([("user_id", 1), ("token", 1)], unique=True),
-    IndexModel([("expiry", 1)], expireAfterSeconds=0)  # Auto-delete expired tokens
-])
-
-file_links.create_index([("file_id", 1)])
+users.create_index([("user_id", 1)], unique=True)
+tokens.create_index([("expiry", 1)], expireAfterSeconds=0)  # Auto-expire tokens
+files.create_index([("file_id", 1)], unique=True)
 
 # ASCII Art
 CHEETAH_ART = """
@@ -91,80 +80,96 @@ CHEETAH_ART = """
  | |____| |  | |_| |_| |__| | | |  | |  | |
   \_____|_|  |_|_____|_____/  |_|  |_|  |_|
 """
-
 print(CHEETAH_ART)
 
-# Helper functions
-async def is_admin(user_id: int) -> bool:
-    return user_id in ADMINS
+# Enhanced URL Shortener
+async def shorten_url(long_url: str) -> str:
+    if not URL_SHORTENER_API or not URL_SHORTENER_DOMAIN:
+        return long_url
+    
+    try:
+        response = requests.post(
+            URL_SHORTENER_API,
+            json={"long_url": long_url},
+            headers={"Content-Type": "application/json"},
+            timeout=5
+        )
+        if response.status_code == 200:
+            return f"https://{URL_SHORTENER_DOMAIN}/{response.json().get('short_code')}"
+    except Exception as e:
+        logger.error(f"URL shortening failed: {e}")
+    return long_url
 
-async def is_premium(user_id: int) -> bool:
-    user = users.find_one({"user_id": user_id})
-    return user.get("is_premium", False) if user else False
+# Force Subscribe with Custom Message
+async def check_force_sub(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    if FORCE_SUB == "0":
+        return True
+    
+    user = update.effective_user
+    try:
+        chat_member = await context.bot.get_chat_member(FORCE_SUB, user.id)
+        if chat_member.status in [ChatMemberStatus.LEFT, ChatMemberStatus.BANNED]:
+            await context.bot.send_message(
+                chat_id=user.id,
+                text=f"{FORCE_SUB_TEXT}\n\nJoin: https://t.me/{FORCE_SUB}",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("Join Channel", url=f"https://t.me/{FORCE_SUB}")
+                ]])
+            )
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"Force sub check failed: {e}")
+        return True
 
-async def is_banned(user_id: int) -> bool:
-    user = users.find_one({"user_id": user_id})
-    return user.get("is_banned", False) if user else False
-
-async def update_user_info(user_id: int, username: str, first_name: str, last_name: str):
-    users.update_one(
+# Token Generation with Configurable Expiry
+async def generate_token(user_id: int) -> str:
+    token = secrets.token_urlsafe(16)
+    expiry = datetime.now(pytz.utc) + timedelta(hours=TOKEN_EXPIRE_HOURS)
+    
+    tokens.update_one(
         {"user_id": user_id},
-        {"$set": {
-            "username": username,
-            "first_name": first_name,
-            "last_name": last_name,
-            "last_interaction": datetime.now(pytz.utc)
-        }},
+        {"$set": {"token": token, "expiry": expiry}},
         upsert=True
     )
-
-async def generate_token(user_id: int) -> str:
-    import secrets
-    token = secrets.token_urlsafe(16)
-    expiry = datetime.now(pytz.utc) + timedelta(hours=24)
-    
-    tokens.insert_one({
-        "user_id": user_id,
-        "token": token,
-        "expiry": expiry
-    })
     return token
 
-async def validate_token(user_id: int, token: str) -> bool:
-    return tokens.count_documents({
-        "user_id": user_id,
-        "token": token,
-        "expiry": {"$gt": datetime.now(pytz.utc)}
-    }) > 0
+# Modified Start Command
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    
+    # Force sub check
+    if not await check_force_sub(update, context):
+        return
+    
+    if await is_banned(user.id):
+        await update.message.reply_text("🚫 You are banned from using this bot.")
+        return
+    
+    if await is_admin(user.id) or await is_premium(user.id):
+        await update.message.reply_text("👋 Admin/Premium access detected! Use /getlink to upload files.")
+    else:
+        token = await generate_token(user.id)
+        await update.message.reply_text(
+            f"🔑 Your access token (valid for {TOKEN_EXPIRE_HOURS} hours):\n\n"
+            f"`{token}`\n\n"
+            "Use this with file links to access content.",
+            parse_mode="Markdown"
+        )
 
-async def store_file_link(file_id: str, short_url: str):
-    file_links.insert_one({
-        "file_id": file_id,
-        "short_url": short_url,
-        "created_at": datetime.now(pytz.utc)
-    })
-
-async def get_file_link(file_id: str) -> Optional[str]:
-    link = file_links.find_one({"file_id": file_id})
-    return link.get("short_url") if link else None
-
-# ... [Rest of your command handlers and main function remain the same]
-# Just replace all database operations with the new collection names:
-# - files_collection → file_links
-# - users_collection → users
-# - tokens_collection → tokens
+# [Rest of your existing handlers with these new integrations...]
 
 def main():
     try:
         # Verify MongoDB connection
         client.server_info()
-        logger.info("Connected to MongoDB 'wleakfiles' database successfully")
+        logger.info("Connected to MongoDB successfully")
         
         # Create application
-        application = ApplicationBuilder().token(TOKEN).build()
+        application = ApplicationBuilder().token(BOT_TOKEN).build()
         
         # Add handlers
-        application.add_handler(CommandHandler("start", handle_deep_link))
+        application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("getlink", getlink))
         # ... [add other handlers]
         
