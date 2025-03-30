@@ -1,217 +1,165 @@
-📁 Telegram File Store Bot
-A powerful bot that stores files in a private channel and provides secure, time-limited access links. Perfect for sharing files with expiration and access control.
+# 🐆 Cheetah File Storage Bot 
 
-🌟 Features
-🔒 Secure file storage in private channel
+**Lightning-fast Telegram file storage with time-limited access**  
+*A secure solution for sharing files with expiration and access control*
 
-⏳ Auto-expiring access links (24 hours default)
+![Demo](https://img.shields.io/badge/Status-Active-brightgreen) 
+![License](https://img.shields.io/badge/License-MIT-blue)
+![Pyrogram](https://img.shields.io/badge/Pyrogram-2.0-red)
 
-🗑️ Auto-delete files from user chats (10 minutes default)
+<div align="center">
+  <img src="https://github.com/Aryanwadhonkar/Cheetah/assets/your-repo/cheetah-banner.gif" width="400">
+</div>
 
-👮 Admin-only uploads
+## 🔥 Key Features
+- **Military-Grade Security**  
+  - Files stored in private channels
+  - Auto-expiring access links (24h default)
+  - Credit enforcement system
 
-📤 Batch file uploads
+- **Smart Access Control**  
+  - Force join channels (optional)
+  - URL shortener integration
+  - Admin-only file uploads
 
-📢 Broadcast messages to all users
+- **High Performance**  
+  - Batch uploads (10 files at once)
+  - Flood wait protection
+  - Efficient memory usage
 
-🔗 URL shortener integration
+## 🛠️ Installation (Termux)
 
-🚦 Rate limiting for high traffic
+```bash
+# 1. Update packages
+pkg update && pkg upgrade -y
 
-💾 SQLite database for reliability
+# 2. Install dependencies
+pkg install python git libjpeg-turbo libcrypt -y
 
-🛠️ Setup Guide
-Prerequisites
-Python 3.7+
+# 3. Install Python requirements
+pip install pyrogram tgcrypto python-dotenv
 
-Telegram API credentials
+# 4. Clone repository
+git clone https://github.com/Aryanwadhonkar/Cheetah.git
+cd Cheetah
 
-Termux (for Android installation)
+# 5. Create .env file
+cat > .env <<EOF
+API_ID=your_telegram_api_id
+API_HASH=your_telegram_api_hash
+BOT_TOKEN=your_bot_token
+DB_CHANNEL_ID=-1001234567890
+ADMINS=123456789,987654321
+FORCE_JOIN=0  # Set to channel ID if needed
+SHORTENER_API=your_api_key  # Optional
+SHORTENER_DOMAIN=your.domain  # Optional
+EOF
 
-Installation
-1.Install requirements in Termux:
-pkg update
-pkg upgrade
-pkg install python git sqlite
-pip install pyrogram tgcrypto python-dotenv requests
-
-2.Clone the repo
-git clone https://github.com/yourusername/file-store-bot.git
-cd file-store-bot
-
-3.Set up environment variables:
-Create a .env file with these values:
-
-API_ID=1234567                          # From my.telegram.org
-API_HASH=abcdef1234567890abcdef12345678  # From my.telegram.org
-BOT_TOKEN=123456:ABC-DEF1234567890       # From @BotFather
-DB_CHANNEL_ID=-1001234567890             # Your private channel ID
-ADMINS=123456789,987654321               # Your admin user IDs
-AUTO_DELETE_MINUTES=10                   # Auto-delete timer
-
-🏗️ Configuration Explained
-Variable	Description
-API_ID	Get from my.telegram.org
-API_HASH	Get from my.telegram.org
-BOT_TOKEN	Get from @BotFather
-DB_CHANNEL_ID	Create private channel, add bot as admin (include -100 prefix)
-ADMINS	Your Telegram user ID(s), comma separated
-AUTO_DELETE_MINUTES	Minutes until files auto-delete from user chats (0 to disable)
-SHORTENER_API	(Optional) Your URL shortener API key
-SHORTENER_DOMAIN	(Optional) Your shortener domain (e.g., example.com)
-
-🚀 Running the Bot
+# 6. Start the bot (in background)
+tmux new -s cheetah_bot
 python main.py
+# Press Ctrl+B then D to detach
 
-To run in background (Termux):
-tmux new -s bot
-python main.py
-# Detach with Ctrl+B, then D
 
+
+📝 Configuration Guide
+Variable	   Required	     Description
+BOT_TOKEN	       ✅	      From @BotFather
+API_ID	         ✅	      Get from my.telegram.org
+API_HASH	       ✅.     	Get from my.telegram.org
+DB_CHANNEL_ID	   ✅.     	Private channel ID (include -100 prefix)
+ADMINS	         ✅	      Your Telegram User IDs, comma-separated
+FORCE_JOIN	     ❌	      Channel ID to force users to join
+SHORTENER_API	   ❌	      Shortener service API key
+SHORTENER_DOMAIN ❌	      Your shortener domain
 
 🤖 Bot Commands
-For Admins
-/upload - Store single file
-
-/batch - Store multiple files
-
-/broadcast - Message all users
-
-/shortener - Configure URL shortener
-
 For Users
-/start - Get access token
-/token - Generate new token
+Command	    Description
+/start	    Begin verification process
+/status	    Check remaining access time
+/clone	    Get setup instructions
+
+For Admins
+Command	       Description
+/getlink	     Generate file access link
+/broadcast	   Message all users
+/verify [id]	 Manually verify user
 
 
 
-🔧 Troubleshooting
-Common Issues:
-
-Bot not responding:
-
-Check if it's running in Termux (tmux attach -t bot)
-
-Verify API credentials
-
-Files not saving:
-
-Ensure bot is admin in DB channel
-
-Check channel ID includes -100 prefix
-
-High memory usage:
-
-Reduce MAX_CONCURRENT_DOWNLOADS in .env
-
-Restart bot periodically
-
-
-
-📜 License
-MIT License - Free to use and modify
-
-💡 Tip: For best performance on Android, close other apps while the bot is running!
-
-
-🌐 Updated Hosting Guide with Docker Support
-
-
-1. Docker Deployment (Works on All Platforms)
-📝 Steps for Any Platform:
-Build the image:
-docker build -t file-store-bot .
-Run the container
+🐳 Docker Deployment (Alternative)
 docker run -d \
-  --name file-bot \
-  -v ./data:/data \
-  -e API_ID=your_api_id \
-  -e API_HASH=your_api_hash \
-  -e BOT_TOKEN=your_bot_token \
+  --name cheetah_bot \
+  -v ./data:/app \
+  -e BOT_TOKEN=your_token \
+  -e API_ID=your_id \
+  -e API_HASH=your_hash \
   -e DB_CHANNEL_ID=-1001234567890 \
-  -e ADMINS=123456789 \
-  file-store-bot
+  aryanwadhonkar/cheetah:latest
+
+
+🔒 License (Modified MIT)
+Original Developer: @wleaksOwner (Telegram)
+GitHub: https://github.com/Aryanwadhonkar/Cheetah
+- CREDIT LINES MUST REMAIN IN ALL COPIES
+- COMMERCIAL USE REQUIRES PERMISSION
+- BOTS MUST DISPLAY ORIGINAL DEVELOPER IN /start
+
+
+
+🚨 Troubleshooting (Termux)
+Issue: Bot crashes on startup
+✅ Fix: pkg install libjpeg-turbo then reinstall requirements
+Issue: Files not saving
+✅ Fix:
+Ensure bot is admin in DB channel
+Check channel ID includes -100 prefix
+Issue: High memory usage
+✅ Fix: Run tmux new -s cheetah to isolate session
 
 
 
 
-2. Heroku Deployment
-   Add heroku.yml:
-   build:
-  docker:
-    web: Dockerfile
-
-   Deploy through Heroku CLI:
-    heroku container:login
-heroku container:push worker
-heroku container:release worker
+🌟 Pro Tips
+Use termux-wake-lock to prevent Android sleep
+Add && python3 -m pip install --upgrade pip before requirements
+For better performance:
+pkg install clang
+export CC=clang
+pip install --no-cache-dir -r requirements.txt
 
 
 
-3.Koyeb with Docker
-Create new app → Select "Docker"
-Set image to yourusername/file-store-bot
-Add all environment variables
-Set volume mount: /data
+📬 Support
+For assistance:
+👉 Telegram: @wleaksOwner
+👉 GitHub: https://github.com/Aryanwadhonkar/Cheetah/issues
 
 
 
-4.VPS deployment through Docker
- # Install Docker
-sudo apt update
-sudo apt install docker.io docker-compose
 
-# Create docker-compose.yml
-version: '3.8'
-services:
-  bot:
-    image: yourusername/file-store-bot
-    restart: always
-    volumes:
-      - ./data:/data
-    environment:
-      - API_ID=your_api_id
-      - API_HASH=your_api_hash
-      - BOT_TOKEN=your_bot_token
-      - DB_CHANNEL_ID=-1001234567890
-      - ADMINS=123456789
-      
-# Start the bot
-docker-compose up -d
 
-🔧 Updated Environment Variables
-Add these to your .env or Docker environment:
-Variable	       Docker Example	         Description
-DATABASE_PATH	   /data/filedb.db	       Path for SQLite database
-WORKERS	         10	                     Number of concurrent workers
-TZ	             UTC	                   Timezone for scheduling
 
-🚀 Benefits of Docker Deployment
-1.Consistency: Runs the same way everywhere
-2.Isolation: No conflicts with other apps
-3.Easy Updates:
+### 🔄 Termux Redeployment Guide
+If you need to redeploy from scratch:
 
-docker-compose pull && docker-compose up -d --force-recreate
+1. **Clean existing installation**:
+   ```bash
+   tmux kill-session -t cheetah_bot
+   pkill -f main.py
+   rm -rf ~/Cheetah
+2.Fresh install: 
+# Follow the installation steps above again
+# Remember to:
+# - Recreate your .env file
+# - Re-add bot as admin to your channel
+3.verify running status
+tmux attach -t cheetah_bot  # Should show bot is running
+4.check logs
+tail -n 50 nohup.out  # Or your log file
 
-4.Resource Limits (add to compose file):
-deploy:
-  resources:
-    limits:
-      cpus: '0.5'
-      memory: 512M
 
-      
-📦 Docker-Specific Tips
-1.For better performance
-# Add to Dockerfile
-RUN pip install uvloop
 
-2.To check logs
-docker logs -f file-bot
+##can be deployed on koyeb,heroku,vps,termux,etc
 
-3.to update
-docker-compose down
-docker-compose pull
-docker-compose up -d
-
-"Choose Docker for the most reliable deployment across all platforms! The bot will maintain all its features while being more portable and easier to manage."
