@@ -11,10 +11,18 @@ APScheduler>=3.9.0  # For advanced scheduling tasks
 #If you need a newer SQLite version:
 # 1. Upgrade Termux packages
 #pkg upgrade -y
-
 # 2. Reinstall Python
 #pkg install python -y
-
 # 3. Check SQLite version
 #python -c "import sqlite3; print(sqlite3.sqlite_version)"
 # Should show ≥3.35.0 in Termux
+
+#for other platforms
+# Linux/macOS:
+#brew upgrade sqlite  # macOS
+#sudo apt install sqlite3 libsqlite3-dev  # Debian/Ubuntu
+
+# Windows:
+#Download from https://sqlite.org/download.html
+
+
