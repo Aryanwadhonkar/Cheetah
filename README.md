@@ -114,3 +114,104 @@ MIT License - Free to use and modify
 💡 Tip: For best performance on Android, close other apps while the bot is running!
 
 
+🌐 Updated Hosting Guide with Docker Support
+
+
+1. Docker Deployment (Works on All Platforms)
+📝 Steps for Any Platform:
+Build the image:
+docker build -t file-store-bot .
+Run the container
+docker run -d \
+  --name file-bot \
+  -v ./data:/data \
+  -e API_ID=your_api_id \
+  -e API_HASH=your_api_hash \
+  -e BOT_TOKEN=your_bot_token \
+  -e DB_CHANNEL_ID=-1001234567890 \
+  -e ADMINS=123456789 \
+  file-store-bot
+
+
+
+
+2. Heroku Deployment
+   Add heroku.yml:
+   build:
+  docker:
+    web: Dockerfile
+
+   Deploy through Heroku CLI:
+    heroku container:login
+heroku container:push worker
+heroku container:release worker
+
+
+
+3.Koyeb with Docker
+Create new app → Select "Docker"
+Set image to yourusername/file-store-bot
+Add all environment variables
+Set volume mount: /data
+
+
+
+4.VPS deployment through Docker
+ # Install Docker
+sudo apt update
+sudo apt install docker.io docker-compose
+
+# Create docker-compose.yml
+version: '3.8'
+services:
+  bot:
+    image: yourusername/file-store-bot
+    restart: always
+    volumes:
+      - ./data:/data
+    environment:
+      - API_ID=your_api_id
+      - API_HASH=your_api_hash
+      - BOT_TOKEN=your_bot_token
+      - DB_CHANNEL_ID=-1001234567890
+      - ADMINS=123456789
+      
+# Start the bot
+docker-compose up -d
+
+🔧 Updated Environment Variables
+Add these to your .env or Docker environment:
+Variable	       Docker Example	         Description
+DATABASE_PATH	   /data/filedb.db	       Path for SQLite database
+WORKERS	         10	                     Number of concurrent workers
+TZ	             UTC	                   Timezone for scheduling
+
+🚀 Benefits of Docker Deployment
+1.Consistency: Runs the same way everywhere
+2.Isolation: No conflicts with other apps
+3.Easy Updates:
+
+docker-compose pull && docker-compose up -d --force-recreate
+
+4.Resource Limits (add to compose file):
+deploy:
+  resources:
+    limits:
+      cpus: '0.5'
+      memory: 512M
+
+      
+📦 Docker-Specific Tips
+1.For better performance
+# Add to Dockerfile
+RUN pip install uvloop
+
+2.To check logs
+docker logs -f file-bot
+
+3.to update
+docker-compose down
+docker-compose pull
+docker-compose up -d
+
+"Choose Docker for the most reliable deployment across all platforms! The bot will maintain all its features while being more portable and easier to manage."
