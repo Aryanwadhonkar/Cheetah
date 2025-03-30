@@ -5,7 +5,7 @@ import secrets
 import asyncio
 import requests
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Optional
 
 import pytz
 from dotenv import load_dotenv
@@ -14,10 +14,10 @@ from telegram import (
     InputMediaDocument,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
-    ChatPermissions
+    Message
 )
-from telegram.constants import ChatAction, ChatMemberStatus
-from telegram.error import TelegramError, BadRequest, Forbidden, RetryAfter
+from telegram.constants import ChatAction
+from telegram.error import TelegramError
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -26,7 +26,6 @@ from telegram.ext import (
     ContextTypes
 )
 from pymongo import MongoClient, IndexModel
-from pymongo.errors import PyMongoError
 
 # Load environment variables
 load_dotenv()
@@ -44,32 +43,23 @@ ADMINS = list(map(int, os.getenv("ADMINS").split(",")))
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 FORCE_SUB = os.getenv("FORCE_SUB", "0")
 AUTO_DELETE = int(os.getenv("AUTO_DELETE_TIME", 0))
-TOKEN_EXPIRE_HOURS = int(os.getenv("TOKEN_EXPIRE_HOURS", "24"))  # New variable
+TOKEN_EXPIRE_HOURS = int(os.getenv("TOKEN_EXPIRE_HOURS", 24))
+PROTECT_CONTENT = os.getenv("PROTECT_CONTENT", "True").lower() == "true"
 MONGO_URL = os.getenv("DATABASE_URL")
 URL_SHORTENER_API = os.getenv("URL_SHORTENER_API")
 URL_SHORTENER_DOMAIN = os.getenv("URL_SHORTENER_DOMAIN")
-FORCE_SUB_TEXT = os.getenv("FORCE_SUB_TEXT", "🔹 Please join our channel to use this bot")  # Custom message
 
 # MongoDB Setup
-client = MongoClient(
-    MONGO_URL,
-    tls=True,
-    connectTimeoutMS=30000,
-    socketTimeoutMS=30000,
-    serverSelectionTimeoutMS=30000
-)
+client = MongoClient(MONGO_URL, tls=True, connectTimeoutMS=30000)
 db = client.wleakfiles
 
 # Collections
 users = db.users
 tokens = db.tokens
 files = db.files
-premium = db.premium
 
 # Create indexes
-users.create_index([("user_id", 1)], unique=True)
-tokens.create_index([("expiry", 1)], expireAfterSeconds=0)  # Auto-expire tokens
-files.create_index([("file_id", 1)], unique=True)
+tokens.create_index([("expiry", 1)], expireAfterSeconds=0)
 
 # ASCII Art
 CHEETAH_ART = """
@@ -82,8 +72,8 @@ CHEETAH_ART = """
 """
 print(CHEETAH_ART)
 
-# Enhanced URL Shortener
 async def shorten_url(long_url: str) -> str:
+    """Shorten URL only for token verification links"""
     if not URL_SHORTENER_API or not URL_SHORTENER_DOMAIN:
         return long_url
     
@@ -100,89 +90,64 @@ async def shorten_url(long_url: str) -> str:
         logger.error(f"URL shortening failed: {e}")
     return long_url
 
-# Force Subscribe with Custom Message
-async def check_force_sub(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    if FORCE_SUB == "0":
-        return True
-    
-    user = update.effective_user
+async def send_file_with_autodelete(update: Update, context: ContextTypes.DEFAULT_TYPE, file_id: str):
+    """Send file with auto-delete and content protection"""
     try:
-        chat_member = await context.bot.get_chat_member(FORCE_SUB, user.id)
-        if chat_member.status in [ChatMemberStatus.LEFT, ChatMemberStatus.BANNED]:
-            await context.bot.send_message(
-                chat_id=user.id,
-                text=f"{FORCE_SUB_TEXT}\n\nJoin: https://t.me/{FORCE_SUB}",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("Join Channel", url=f"https://t.me/{FORCE_SUB}")
-                ]])
-            )
-            return False
-        return True
+        sent_msg = await context.bot.send_document(
+            chat_id=update.effective_chat.id,
+            document=file_id,
+            protect_content=PROTECT_CONTENT
+        )
+        
+        if AUTO_DELETE > 0:
+            await asyncio.sleep(AUTO_DELETE * 60)
+            try:
+                await sent_msg.delete()
+            except Exception as e:
+                logger.error(f"Failed to auto-delete: {e}")
     except Exception as e:
-        logger.error(f"Force sub check failed: {e}")
-        return True
+        logger.error(f"Error sending file: {e}")
+        await update.message.reply_text("Failed to send file. Please try again.")
 
-# Token Generation with Configurable Expiry
-async def generate_token(user_id: int) -> str:
+async def handle_deep_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    
+    # Check if user is admin/premium
+    if user.id in ADMINS or users.find_one({"user_id": user.id, "is_premium": True}):
+        file_id = context.args[0] if context.args else None
+        if file_id:
+            await send_file_with_autodelete(update, context, file_id)
+        return
+    
+    # Token verification with shortened URL
+    if len(context.args) > 1 and context.args[1]:
+        token = context.args[1]
+        if tokens.find_one({"user_id": user.id, "token": token, "expiry": {"$gt": datetime.now(pytz.utc)}}):
+            file_id = context.args[0]
+            await send_file_with_autodelete(update, context, file_id)
+            return
+    
+    # Generate new token with shortened URL
     token = secrets.token_urlsafe(16)
     expiry = datetime.now(pytz.utc) + timedelta(hours=TOKEN_EXPIRE_HOURS)
+    tokens.insert_one({"user_id": user.id, "token": token, "expiry": expiry})
     
-    tokens.update_one(
-        {"user_id": user_id},
-        {"$set": {"token": token, "expiry": expiry}},
-        upsert=True
+    # Create verification link with URL shortener
+    bot_username = context.bot.username
+    verification_url = await shorten_url(f"https://t.me/{bot_username}?start={context.args[0]}_{token}")
+    
+    await update.message.reply_text(
+        f"🔒 Token required for access\n\n"
+        f"Click here to verify: {verification_url}\n"
+        f"Token valid for {TOKEN_EXPIRE_HOURS} hours",
+        disable_web_page_preview=True
     )
-    return token
-
-# Modified Start Command
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    
-    # Force sub check
-    if not await check_force_sub(update, context):
-        return
-    
-    if await is_banned(user.id):
-        await update.message.reply_text("🚫 You are banned from using this bot.")
-        return
-    
-    if await is_admin(user.id) or await is_premium(user.id):
-        await update.message.reply_text("👋 Admin/Premium access detected! Use /getlink to upload files.")
-    else:
-        token = await generate_token(user.id)
-        await update.message.reply_text(
-            f"🔑 Your access token (valid for {TOKEN_EXPIRE_HOURS} hours):\n\n"
-            f"`{token}`\n\n"
-            "Use this with file links to access content.",
-            parse_mode="Markdown"
-        )
-
-# [Rest of your existing handlers with these new integrations...]
 
 def main():
-    try:
-        # Verify MongoDB connection
-        client.server_info()
-        logger.info("Connected to MongoDB successfully")
-        
-        # Create application
-        application = ApplicationBuilder().token(BOT_TOKEN).build()
-        
-        # Add handlers
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("getlink", getlink))
-        # ... [add other handlers]
-        
-        application.add_error_handler(error_handler)
-        
-        # Run the bot
-        application.run_polling()
-    except PyMongoError as e:
-        logger.error(f"MongoDB connection failed: {e}")
-    except Exception as e:
-        logger.error(f"Bot startup failed: {e}")
-    finally:
-        client.close()
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", handle_deep_link))
+    # Add other handlers...
+    application.run_polling()
 
 if __name__ == "__main__":
     main()
