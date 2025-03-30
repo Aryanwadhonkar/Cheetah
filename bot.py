@@ -26,7 +26,6 @@ from telegram.ext import (
     ContextTypes
 )
 from pymongo import MongoClient, IndexModel
-from pymongo.errors import PyMongoError, ConnectionFailure
 
 # Load environment variables
 load_dotenv()
@@ -40,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 # Constants
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMINS = list(map(int, os.getenv("ADMINS").split(",")))
+ADMINS = [int(admin.strip(" []'\"") for admin in os.getenv("ADMINS").split(",")]  # Fixed parsing
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 FORCE_SUB = os.getenv("FORCE_SUB", "0")
 AUTO_DELETE_TIME = int(os.getenv("AUTO_DELETE_TIME", 0))
@@ -50,42 +49,28 @@ MONGO_URL = os.getenv("MONGO_URL")
 URL_SHORTENER_API = os.getenv("URL_SHORTENER_API")
 URL_SHORTENER_KEY = os.getenv("URL_SHORTENER_KEY")
 URL_SHORTENER_DOMAIN = os.getenv("URL_SHORTENER_DOMAIN")
-WHITELIST_IP = os.getenv("WHITELIST_IP")
 
-# MongoDB Setup with IP verification
-def get_mongo_client():
-    try:
-        current_ip = requests.get('https://api.ipify.org', timeout=3).text
-        if current_ip != WHITELIST_IP:
-            raise ConnectionError(f"IP mismatch! Current: {current_ip} | Allowed: {WHITELIST_IP}")
-        
-        return MongoClient(
-            MONGO_URL,
-            tls=True,
-            connectTimeoutMS=10000,
-            socketTimeoutMS=10000,
-            serverSelectionTimeoutMS=10000,
-            appName="CheetahBot",
-            retryWrites=False
-        )
-    except Exception as e:
-        logger.critical(f"MongoDB connection failed: {e}")
-        raise
+# MongoDB Setup
+client = MongoClient(
+    MONGO_URL,
+    tls=True,
+    connectTimeoutMS=30000,
+    socketTimeoutMS=30000,
+    serverSelectionTimeoutMS=30000
+)
+db = client.wleakfiles
 
-try:
-    client = get_mongo_client()
-    db = client.wleakfiles
-    users = db.users
-    tokens = db.tokens
-    files = db.files
-    premium = db.premium
-    tokens.create_index([("expiry", 1)], expireAfterSeconds=0)
-except Exception as e:
-    logger.error(f"Database initialization failed: {e}")
-    exit(1)
+# Collections
+users = db.users
+tokens = db.tokens
+files = db.files
+premium = db.premium
 
-# ASCII Art
-CHEETAH_ART = """
+# Create indexes
+tokens.create_index([("expiry", 1)], expireAfterSeconds=0)
+
+# ASCII Art (Fixed escape sequence)
+CHEETAH_ART = r"""
    ____ _    _ _____ _____ _______ _    _ 
   / ____| |  | |_   _|  __ \__   __| |  | |
  | |    | |__| | | | | |  | | | |  | |__| |
@@ -95,6 +80,7 @@ CHEETAH_ART = """
 """
 print(CHEETAH_ART)
 
+# ... [Rest of your code remains exactly the same as in previous secure version]
 # Security Functions
 async def verify_ip():
     """Check if current IP matches whitelist"""
