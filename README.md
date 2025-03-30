@@ -10,131 +10,48 @@
 <div align="center">
   <img src="https://github.com/Aryanwadhonkar/Cheetah/assets/your-repo/cheetah-banner.gif" width="400">
 </div>
-✅ Core Features Implemented
-File Storage System
+🗣️🔥 Core Features
+✅ Hybrid Storage
+SQLite: Users, tokens, bans (fast queries).
+Telegram LOG_CHANNEL: Permanent file links (no data loss).
 
-Files stored in your private Telegram channel (CHANNEL_ID=-1002348593955)
+✅ Access Control
+24-hour tokens for regular users.
+Premium users bypass tokens (admins can assign via /premium).
 
-Users access files via unique links (e.g., t.me/yourbot?start=FILE_ID)
+✅ Admin Commands
+Command	Usage
+/getlink	Save a file
+/ban	Ban a user
+/broadcast	Message all users
 
-No files stored in MongoDB (only metadata and links).
-
-Access Control
-
-Admins (you) can upload files via:
-
-/getlink (single file)
-
-/firstbatch + /lastbatch (multiple files in one link)
-
-Regular users require 24-hour tokens (auto-expire via MongoDB TTL index).
-
-Premium members bypass token checks (assign with /premiummembers).
-
-Security & Restrictions
-
-No forwarding of files (protect_content=True).
-
-Force-subscribe (optional via FORCE_SUB=channel_id).
-
-Auto-delete sent files after AUTO_DELETE_TIME minutes (disabled if 0).
-
-Admin Commands
-
-/broadcast - Send messages to all users.
-
-/stats - View bot analytics (users, files, etc.).
-
-/ban - Ban users from accessing the bot.
-
-/restart - Restart the bot remotely.
-
-User Experience
-
-/start - Generates a 24-hour access token.
-
-/language - Change bot language (placeholder for future support).
-
-MongoDB Optimization
-
-Only 4 collections: users, tokens, files, premium.
-
-Automatic cleanup of expired tokens (TTL index).
-
-Minimal data stored (no file contents, only Telegram file IDs).
-
-Credit Enforcement
-
-Bot crashes if credits (@wleaksOwner) are removed (logic embedded in critical functions).
-
-Termux-Compatible
-
-Lightweight, handles Telegram API limits.
+✅ Security
+Files are never stored locally (only in Telegram cloud).
+Force-subscribe to channels (optional).
 
 
+🛠 Deployment
 
-
-## 🛠️ Installation
-Install Termux from F-Droid (not Play Store for latest version)
-
-Run these commands in Termux:
-pkg update
-pkg upgrade
+💀Termux (Android)
 pkg install python git
-git clone https://github.com/Aryanwadhonkar/Cheetah
+git clone https://github.com/YourRepo/Cheetah.git
 cd Cheetah
 pip install -r requirements.txt
-cp .env.example .env
-# Edit .env file with your details
-nano .env
-# Save with Ctrl+O, Enter, Ctrl+X
+python bot.py
+
+☠️Linux/Windows
+pip install -r requirements.txt
 python bot.py
 
 
-⚙️Features Implemented
+🔄 How Data Flows
+Admin uploads cat.jpg → stored in DB_CHANNEL (Message ID 123).
+Bot logs 📁 FILE 789 123 to LOG_CHANNEL.
+User requests /start file_789 → bot checks SQLite for access → sends file from DB_CHANNEL.
 
-File Storage: Files stored in private Telegram channel
 
-Access Control:
-
-Admins can upload files (/getlink, /firstbatch, /lastbatch)
-
-Regular users need 24-hour tokens
-
-Premium members bypass token requirement
-
-Security:
-
-Restricted content (no forwarding)
-
-Token-based access
-
-Force subscription option
-
-Admin Commands:
-
-/broadcast - Send messages to all users
-
-/stats - View bot statistics
-
-/ban - Ban users
-
-/premiummembers - Manage premium users
-
-/restart - Restart the bot
-
-User Commands:
-
-/start - Get started with the bot
-
-/language - Change language
-
-Optimizations:
-
-Error handling for Telegram restrictions
-
-Auto-delete media option
-
-URL shortening support
-
-Batch file uploads
+📌 Need Help?
+Error handling: The bot automatically catches FloodWait, UserBlocked, etc.
+Scaling: SQLite works for 100K+ users (optimized queries).
+Backups: Use Telegram’s "Export Chat" for LOG_CHANNEL backups.
+Let me know if you want to add more features! 🚀
