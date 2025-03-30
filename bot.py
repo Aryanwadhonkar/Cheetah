@@ -37,9 +37,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Constants
+# Fixed ADMINS parsing with proper parentheses
+ADMINS_STR = os.getenv("ADMINS", "").strip("[]").replace(" ", "")
+ADMINS = [int(admin) for admin in ADMINS_STR.split(",") if admin] if ADMINS_STR else []
+
+# Other constants
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMINS = [int(admin.strip(" []'\"") for admin in os.getenv("ADMINS").split(",")]  # Fixed parsing
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 FORCE_SUB = os.getenv("FORCE_SUB", "0")
 AUTO_DELETE_TIME = int(os.getenv("AUTO_DELETE_TIME", 0))
@@ -69,7 +72,7 @@ premium = db.premium
 # Create indexes
 tokens.create_index([("expiry", 1)], expireAfterSeconds=0)
 
-# ASCII Art (Fixed escape sequence)
+# ASCII Art (raw string)
 CHEETAH_ART = r"""
    ____ _    _ _____ _____ _______ _    _ 
   / ____| |  | |_   _|  __ \__   __| |  | |
@@ -79,6 +82,8 @@ CHEETAH_ART = r"""
   \_____|_|  |_|_____|_____/  |_|  |_|  |_|
 """
 print(CHEETAH_ART)
+
+# ... [Rest of your existing code remains unchanged]
 
 # ... [Rest of your code remains exactly the same as in previous secure version]
 # Security Functions
