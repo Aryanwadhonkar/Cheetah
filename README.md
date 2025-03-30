@@ -10,22 +10,69 @@
 <div align="center">
   <img src="https://github.com/Aryanwadhonkar/Cheetah/assets/your-repo/cheetah-banner.gif" width="400">
 </div>
+✅ Core Features Implemented
+File Storage System
 
-## 🔥 Key Features
-- **Military-Grade Security**  
-  - Files stored in private channels
-  - Auto-expiring access links (24h default)
-  - Credit enforcement system
+Files stored in your private Telegram channel (CHANNEL_ID=-1002348593955)
 
-- **Smart Access Control**  
-  - Force join channels (optional)
-  - URL shortener integration
-  - Admin-only file uploads
+Users access files via unique links (e.g., t.me/yourbot?start=FILE_ID)
 
-- **High Performance**  
-  - Batch uploads (10 files at once)
-  - Flood wait protection
-  - Efficient memory usage
+No files stored in MongoDB (only metadata and links).
+
+Access Control
+
+Admins (you) can upload files via:
+
+/getlink (single file)
+
+/firstbatch + /lastbatch (multiple files in one link)
+
+Regular users require 24-hour tokens (auto-expire via MongoDB TTL index).
+
+Premium members bypass token checks (assign with /premiummembers).
+
+Security & Restrictions
+
+No forwarding of files (protect_content=True).
+
+Force-subscribe (optional via FORCE_SUB=channel_id).
+
+Auto-delete sent files after AUTO_DELETE_TIME minutes (disabled if 0).
+
+Admin Commands
+
+/broadcast - Send messages to all users.
+
+/stats - View bot analytics (users, files, etc.).
+
+/ban - Ban users from accessing the bot.
+
+/restart - Restart the bot remotely.
+
+User Experience
+
+/start - Generates a 24-hour access token.
+
+/language - Change bot language (placeholder for future support).
+
+MongoDB Optimization
+
+Only 4 collections: users, tokens, files, premium.
+
+Automatic cleanup of expired tokens (TTL index).
+
+Minimal data stored (no file contents, only Telegram file IDs).
+
+Credit Enforcement
+
+Bot crashes if credits (@wleaksOwner) are removed (logic embedded in critical functions).
+
+Termux-Compatible
+
+Lightweight, handles Telegram API limits.
+
+
+
 
 ## 🛠️ Installation
 Install Termux from F-Droid (not Play Store for latest version)
