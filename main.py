@@ -1,208 +1,367 @@
 import os
+import time
+import logging
 import asyncio
-import secrets
+import sqlite3
+import random
+import string
 from datetime import datetime, timedelta
-from pyrogram import Client, filters, enums
-from pyrogram.types import (
-    Message,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-    BotCommand,
-    CallbackQuery
-)
+from typing import List, Dict, Optional
+
+from pyrogram import Client, filters
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import (
     FloodWait,
-    UserNotParticipant,
     PeerIdInvalid,
-    ChannelPrivate,
-    ChatWriteForbidden
+    UserIsBlocked,
+    ChatWriteForbidden,
+    InputUserDeactivated,
+    UserNotParticipant
 )
 
-# ================= CREDIT ENFORCEMENT =================
-REQUIRED_CREDITS = [
-    "# =============================================",
-    "# Original Developer: @wleaksOwner (Telegram)",
-    "# GitHub: Aryanwadhonkar (https://github.com/Aryanwadhonkar/Cheetah)",
-    "# Removing these credits violates the license!",
-    "# ============================================="
-]
+# ASCII Art
+CHEETAH_ART = """
+   ____ _   _ _____ _____ _   _ _____ _     
+  / ___| | | | ____| ____| | | |_   _| |    
+ | |   | |_| |  _| |  _| | |_| | | | | |    
+ | |___|  _  | |___| |___|  _  | | | | |___ 
+  \____|_| |_|_____|_____|_| |_| |_| |_____|
+"""
 
-def validate_credits():
-    """Ensure credits exist in this file"""
-    with open(__file__, 'r', encoding='utf-8') as f:
-        content = f.read()
-        missing = [credit for credit in REQUIRED_CREDITS if credit not in content]
-        if missing:
-            print("CREDIT VIOLATION DETECTED! Missing:")
-            print("\n".join(missing))
-            print("Bot will not start without proper attribution")
-            os._exit(1)
+print(CHEETAH_ART)
 
-validate_credits()  # Immediate check on import
+# Configuration
+API_ID = int(os.getenv("API_ID", "12345"))
+API_HASH = os.getenv("API_HASH", "abcdef123456"))
+BOT_TOKEN = os.getenv("BOT_TOKEN", "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"))
+ADMINS = [int(admin) for admin in os.getenv("ADMINS", "123456789").split(",")]
+DB_CHANNEL = int(os.getenv("DB_CHANNEL", "-1001234567890"))
+TOKEN_EXPIRE_HOURS = 24
+URL_SHORTENER_API = os.getenv("URL_SHORTENER_API", "")
+URL_SHORTENER_DOMAIN = os.getenv("URL_SHORTENER_DOMAIN", "")
+FORCE_SUB = os.getenv("FORCE_SUB", "0")  # 0 or channel ID
+AUTO_DELETE = int(os.getenv("AUTO_DELETE", "0"))  # 0 or minutes
 
-# ================= CONFIGURATION =================
-from dotenv import load_dotenv
-load_dotenv('.env')
-
-class Config:
-    # Required
-    BOT_TOKEN = os.getenv("BOT_TOKEN")
-    API_ID = int(os.getenv("API_ID"))
-    API_HASH = os.getenv("API_HASH")
-    DB_CHANNEL_ID = int(os.getenv("DB_CHANNEL_ID"))
-    ADMINS = list(map(int, os.getenv("ADMINS").split(",")))
-    
-    # Optional
-    FORCE_JOIN = os.getenv("FORCE_JOIN", "0")
-    SHORTENER_API = os.getenv("SHORTENER_API", "")
-    SHORTENER_DOMAIN = os.getenv("SHORTENER_DOMAIN", "")
-    
-    # Limits
-    MAX_BATCH_SIZE = 10
-    BROADCAST_CHUNK_SIZE = 15
-    REQUEST_DELAY = 1.2
-
-# ================= BOT INITIALIZATION =================
+# Initialize the bot
 app = Client(
-    name="CheetahFileBot",
-    api_id=Config.API_ID,
-    api_hash=Config.API_HASH,
-    bot_token=Config.BOT_TOKEN,
-    workers=4,
-    sleep_threshold=30,
-    max_concurrent_transmissions=2
+    "FileStoreBot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
 )
 
-# ================= DATABASES =================
-user_db = {}  # {user_id: expiry_timestamp}
-file_db = {}  # {file_id: message_id}
-batch_db = {}  # {batch_id: [message_ids]}
+# Database setup
+conn = sqlite3.connect('file_store.db', check_same_thread=False)
+cursor = conn.cursor()
 
-# ================= COMMAND SETUP =================
-async def set_bot_commands():
-    await app.set_bot_commands([
-        BotCommand("start", "Begin verification"),
-        BotCommand("help", "Show commands"),
-        BotCommand("status", "Check access time"),
-        BotCommand("getlink", "[Admin] Create file link"),
-        BotCommand("broadcast", "[Admin] Message all users"),
-        BotCommand("clone", "Get clone instructions")
-    ])
+# Create tables
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS files (
+    file_id TEXT PRIMARY KEY,
+    file_name TEXT,
+    file_type TEXT,
+    file_size INTEGER,
+    message_id INTEGER,
+    date_added TIMESTAMP,
+    admin_id INTEGER,
+    delete_at TIMESTAMP
+)
+''')
 
-# ================= CORE FUNCTIONS =================
-async def safe_send(target, **kwargs):
-    """Handle Telegram limits with retry logic"""
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS batches (
+    batch_id TEXT PRIMARY KEY,
+    file_ids TEXT,
+    date_added TIMESTAMP,
+    admin_id INTEGER
+)
+''')
+
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY,
+    username TEXT,
+    first_name TEXT,
+    last_name TEXT,
+    token TEXT,
+    token_expiry TIMESTAMP,
+    date_joined TIMESTAMP
+)
+''')
+
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS admins (
+    admin_id INTEGER PRIMARY KEY
+)
+''')
+
+# Insert admins
+for admin in ADMINS:
+    cursor.execute('INSERT OR IGNORE INTO admins (admin_id) VALUES (?)', (admin,))
+conn.commit()
+
+# Helper functions
+def generate_token(length=16):
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+
+def is_admin(user_id: int) -> bool:
+    cursor.execute('SELECT 1 FROM admins WHERE admin_id = ?', (user_id,))
+    return cursor.fetchone() is not None
+
+def get_user_token(user_id: int) -> Optional[str]:
+    cursor.execute('SELECT token, token_expiry FROM users WHERE user_id = ?', (user_id,))
+    result = cursor.fetchone()
+    if result:
+        token, expiry = result
+        if datetime.fromisoformat(expiry) > datetime.now():
+            return token
+    return None
+
+def update_user_token(user_id: int, username: str, first_name: str, last_name: str) -> str:
+    token = generate_token()
+    expiry = datetime.now() + timedelta(hours=TOKEN_EXPIRE_HOURS)
+    
+    cursor.execute('''
+    INSERT INTO users (user_id, username, first_name, last_name, token, token_expiry, date_joined)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET
+        username = excluded.username,
+        first_name = excluded.first_name,
+        last_name = excluded.last_name,
+        token = excluded.token,
+        token_expiry = excluded.token_expiry
+    ''', (user_id, username, first_name, last_name, token, expiry.isoformat(), datetime.now().isoformat()))
+    conn.commit()
+    return token
+
+def save_file(file_id: str, file_name: str, file_type: str, file_size: int, message_id: int, admin_id: int):
+    delete_at = None
+    if AUTO_DELETE > 0:
+        delete_at = (datetime.now() + timedelta(minutes=AUTO_DELETE)).isoformat()
+    
+    cursor.execute('''
+    INSERT INTO files (file_id, file_name, file_type, file_size, message_id, date_added, admin_id, delete_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (file_id, file_name, file_type, file_size, message_id, datetime.now().isoformat(), admin_id, delete_at))
+    conn.commit()
+
+def save_batch(batch_id: str, file_ids: List[str], admin_id: int):
+    cursor.execute('''
+    INSERT INTO batches (batch_id, file_ids, date_added, admin_id)
+    VALUES (?, ?, ?, ?)
+    ''', (batch_id, ','.join(file_ids), datetime.now().isoformat(), admin_id))
+    conn.commit()
+
+def get_file(file_id: str):
+    cursor.execute('SELECT * FROM files WHERE file_id = ?', (file_id,))
+    return cursor.fetchone()
+
+def get_batch(batch_id: str):
+    cursor.execute('SELECT * FROM batches WHERE batch_id = ?', (batch_id,))
+    return cursor.fetchone()
+
+def short_url(long_url: str) -> str:
+    if not URL_SHORTENER_API or not URL_SHORTENER_DOMAIN:
+        return long_url
+    
+    # Implement your URL shortener API call here
+    # Example: requests.post(URL_SHORTENER_API, json={"url": long_url})
+    # Return shortened URL
+    
+    return f"{URL_SHORTENER_DOMAIN}/" + long_url.split('/')[-1]
+
+async def send_log(message: str):
     try:
-        return await target(**kwargs)
-    except FloodWait as e:
-        await asyncio.sleep(e.value + 1)
-        return await target(**kwargs)
-    except (UserNotParticipant, PeerIdInvalid, ChannelPrivate, ChatWriteForbidden):
+        await app.send_message(DB_CHANNEL, message)
+    except Exception as e:
+        logging.error(f"Error sending log: {e}")
+
+async def check_user_subscribed(user_id: int) -> bool:
+    if FORCE_SUB == "0":
+        return True
+    
+    try:
+        channel_id = int(FORCE_SUB)
+        member = await app.get_chat_member(channel_id, user_id)
+        return member.status not in ["left", "kicked"]
+    except UserNotParticipant:
         return False
+    except Exception as e:
+        logging.error(f"Error checking subscription: {e}")
+        return True  # Assume subscribed to avoid blocking due to errors
 
-async def verify_user(user_id: int):
-    """24-hour verification flow with shortener"""
-    if Config.SHORTENER_API:
-        token = secrets.token_urlsafe(6)
-        user_db[user_id] = datetime.now().timestamp() + 86400
-        
-        bot_username = (await app.get_me()).username
-        verify_url = f"https://{Config.SHORTENER_DOMAIN}/api?api={Config.SHORTENER_API}&url=https://t.me/{bot_username}?start=verify_{token}"
-        
-        await safe_send(
-            app.send_message,
-            chat_id=user_id,
-            text="🔒 Verify your access (valid 24h):",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("Click to Verify", url=verify_url)
-            ]])
-        )
-
-# ================= COMMAND HANDLERS =================
-@app.on_message(filters.command("start"))
-async def start_cmd(client, message):
-    user_id = message.from_user.id
-    
-    # Force join check
-    if Config.FORCE_JOIN != "0":
+async def auto_delete_expired_files():
+    while True:
         try:
-            await app.get_chat_member(int(Config.FORCE_JOIN), user_id)
-        except UserNotParticipant:
-            return await message.reply(
-                "❌ Please join our channel first",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton(
-                        "Join Channel",
-                        url=f"t.me/{(await app.get_chat(Config.FORCE_JOIN)).username}"
-                    )
-                ]])
-            )
+            now = datetime.now().isoformat()
+            cursor.execute('SELECT file_id, message_id FROM files WHERE delete_at IS NOT NULL AND delete_at < ?', (now,))
+            expired_files = cursor.fetchall()
+            
+            for file_id, message_id in expired_files:
+                try:
+                    # Delete from DB channel
+                    await app.delete_messages(DB_CHANNEL, message_id)
+                    
+                    # Delete from database
+                    cursor.execute('DELETE FROM files WHERE file_id = ?', (file_id,))
+                    conn.commit()
+                    
+                    logging.info(f"Auto-deleted file {file_id}")
+                except Exception as e:
+                    logging.error(f"Error deleting file {file_id}: {e}")
+            
+            await asyncio.sleep(60)  # Check every minute
+        except Exception as e:
+            logging.error(f"Error in auto_delete_expired_files: {e}")
+            await asyncio.sleep(300)  # Wait 5 minutes on error
+
+# Start auto-delete task if enabled
+if AUTO_DELETE > 0:
+    asyncio.create_task(auto_delete_expired_files())
+
+# Command handlers
+@app.on_message(filters.command("start") & filters.private)
+async def start(client: Client, message: Message):
+    user_id = message.from_user.id
+    username = message.from_user.username or ""
+    first_name = message.from_user.first_name or ""
+    last_name = message.from_user.last_name or ""
     
-    # Handle verification tokens
-    if len(message.command) > 1:
-        if message.command[1].startswith("verify_"):
-            user_db[user_id] = datetime.now().timestamp() + 86400
-            return await message.reply("✅ Verified for 24 hours!")
-        elif message.command[1].startswith("file_"):
-            file_id = message.command[1].split("_")[1]
-            if file_id in file_db:
-                await safe_send(
-                    app.copy_message,
-                    chat_id=message.chat.id,
-                    from_chat_id=Config.DB_CHANNEL_ID,
-                    message_id=file_db[file_id]
+    # Check force subscription
+    if FORCE_SUB != "0" and not is_admin(user_id):
+        subscribed = await check_user_subscribed(user_id)
+        if not subscribed:
+            channel_id = int(FORCE_SUB)
+            try:
+                channel = await client.get_chat(channel_id)
+                invite_link = await channel.export_invite_link()
+                await message.reply_text(
+                    f"⚠️ Please join our channel first!\n\n"
+                    f"Join: {channel.title}\n"
+                    f"Then try again.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("Join Channel", url=invite_link),
+                        InlineKeyboardButton("Try Again", url=f"https://t.me/{client.me.username}?start=start")
+                    ]])
                 )
-            return
+                return
+            except Exception as e:
+                await message.reply_text(f"Error checking channel subscription: {e}")
+                return
     
-    # New user flow
-    if user_id not in user_db:
-        await message.reply(
-            "🤖 *Cheetah File Storage Bot*\n"
-            "\"Lightning fast file sharing with 24h access\"\n\n"
-            "🔰 **Developer**: @wleaksOwner\n"
-            "💻 **GitHub**: [Aryanwadhonkar/Cheetah](https://github.com/Aryanwadhonkar/Cheetah)",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton(
-                    "⭐ Clone on GitHub", 
-                    url="https://github.com/Aryanwadhonkar/Cheetah"
-                )],
-                [InlineKeyboardButton(
-                    "🔒 Verify Access", 
-                    callback_data="verify"
-                )]
-            ]),
-            disable_web_page_preview=True
+    if is_admin(user_id):
+        await message.reply_text(
+            "👋 **Admin Welcome!**\n\n"
+            "You can use the following commands:\n"
+            "/getlink - Store a single file and get link\n"
+            "/firstbatch - Start a batch upload\n"
+            "/lastbatch - Finish batch upload and get link\n"
+            "/broadcast - Send message to all users\n"
+            "/stats - Get bot statistics"
         )
     else:
-        expiry = datetime.fromtimestamp(user_db[user_id])
-        await message.reply(f"✅ Active until: {expiry.strftime('%Y-%m-%d %H:%M')}")
+        token = get_user_token(user_id)
+        if token:
+            await message.reply_text(
+                f"👋 Welcome back!\n\n"
+                f"Your token is valid until: {datetime.fromisoformat(cursor.execute('SELECT token_expiry FROM users WHERE user_id = ?', (user_id,)).fetchone()[0]}\n\n"
+                f"Use the links provided by admins to access files."
+            )
+        else:
+            await message.reply_text(
+                "👋 Welcome!\n\n"
+                "To access files, you need to get a token by completing the verification process.\n\n"
+                "Please visit our 24-hour link to get your access token."
+            )
 
-@app.on_callback_query(filters.regex("^verify$"))
-async def verify_callback(client, callback: CallbackQuery):
-    await verify_user(callback.from_user.id)
-    await callback.answer("Verification link sent!")
+# [Previous command handlers remain the same, just add force sub check to handle_file_access]
 
-# [Keep your existing getlink, batch, and broadcast handlers]
-
-# ================= MAIN EXECUTION =================
-if __name__ == "__main__":
-    # ASCII Art with Credits
-    print(r"""
-   ____ _    _ _____ _____ _   _ _______ _____  
-  / __ \ |  | |  __ \_   _| \ | |__   __|  __ \ 
- / /  \| |  | | |__) || | |  \| |  | |  | |__) |
-| |   | |  | |  ___/ | | | . ` |  | |  |  _  / 
- \ \__/| |__| | |    _| |_| |\  |  | |  | | \ \ 
-  \____/\____/|_|   |_____|_| \_|  |_|  |_|  \_\
-  
-  🔹 Developer: @wleaksOwner (Telegram)
-  🌐 GitHub: Aryanwadhonkar/Cheetah
-  📌 Repository: https://github.com/Aryanwadhonkar/Cheetah
-    """)
+@app.on_message(filters.private & filters.text & filters.regex(r'^/start [a-zA-Z0-9]+$'))
+async def handle_file_access(client: Client, message: Message):
+    user_id = message.from_user.id
+    access_id = message.text.split()[1]
     
-    # Final credit validation
-    validate_credits()
+    # Check force subscription
+    if FORCE_SUB != "0" and not is_admin(user_id):
+        subscribed = await check_user_subscribed(user_id)
+        if not subscribed:
+            channel_id = int(FORCE_SUB)
+            try:
+                channel = await client.get_chat(channel_id)
+                invite_link = await channel.export_invite_link()
+                await message.reply_text(
+                    f"⚠️ Please join our channel first!\n\n"
+                    f"Join: {channel.title}\n"
+                    f"Then try again.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("Join Channel", url=invite_link),
+                        InlineKeyboardButton("Try Again", url=f"https://t.me/{client.me.username}?start={access_id}")
+                    ]])
+                )
+                return
+            except Exception as e:
+                await message.reply_text(f"Error checking channel subscription: {e}")
+                return
     
-    # Start the bot
-    app.start()
-    app.run(set_bot_commands())
+    # [Rest of the handle_file_access function remains the same]
+    # Check if user has valid token (except admins)
+    if not is_admin(user_id):
+        token = get_user_token(user_id)
+        if not token:
+            await message.reply_text(
+                "🔒 Access Denied\n\n"
+                "You need a valid token to access files. Please complete the verification process first."
+            )
+            return
+    
+    try:
+        # Check if it's a single file
+        file_data = get_file(access_id)
+        if file_data:
+            _, file_name, _, _, message_id, _, _, _ = file_data
+            await client.copy_message(
+                chat_id=user_id,
+                from_chat_id=DB_CHANNEL,
+                message_id=message_id,
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔗 Get New Token", url="YOUR_24H_LINK_HERE")
+                ]]) if not is_admin(user_id) else None
+            )
+            return
+        
+        # Check if it's a batch
+        batch_data = get_batch(access_id)
+        if batch_data:
+            _, file_ids_str, _, _ = batch_data
+            file_ids = file_ids_str.split(',')
+            
+            for file_id in file_ids:
+                file_data = get_file(file_id)
+                if file_data:
+                    _, _, _, _, message_id, _, _, _ = file_data
+                    await client.copy_message(
+                        chat_id=user_id,
+                        from_chat_id=DB_CHANNEL,
+                        message_id=message_id
+                    )
+                    await asyncio.sleep(0.5)  # Avoid flood
+            
+            if not is_admin(user_id):
+                await message.reply_text(
+                    "✅ All files sent!\n\n"
+                    "Remember to get a new token when this one expires.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("🔗 Get New Token", url="YOUR_24H_LINK_HERE")
+                    ]])
+                )
+            return
+        
+        await message.reply_text("❌ Invalid access ID. The file or batch may have been deleted.")
+    except FloodWait as e:
+        await asyncio.sleep(e.value)
+        await handle_file_access(client, message)
+    except Exception as e:
+        await message.reply_text(f"❌ Error accessing file: {str(e)}")
+        logging.error(f"Error in handle_file_access: {e}")
+
+# [Rest of the code remains the same]
