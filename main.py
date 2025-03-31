@@ -121,11 +121,11 @@ async def start(update: Update, context: CallbackContext) -> None:
     """
     The /start command handler.
     
-    • If the command has a token argument, the bot verifies its validity (24-hour duration).
+    • If the command has a token argument, verifies its validity (24-hour duration).
       Sends media using file_id from DB channel and schedules auto deletion.
       Sent media has protected content enabled (preventing forwarding/saving).
     
-    • If no argument is provided, a welcome message is shown.
+    • If no argument is provided, shows a welcome message.
     """
     if FORCE_SUB != "0":
         valid = await force_sub_check(update, context)
@@ -195,54 +195,32 @@ def admin_only(func):
     return wrapped
 
 
-async def help_command(update: Update, context: CallbackContext) -> None:
+@admin_only
+async def getlink(update: Update, context: CallbackContext) -> None:
     """
-    /help command for all users.
-
-    Sends a list of available commands with descriptions and authorization levels.
-    """
-    command_list = get_command_list()
-    await update.message.reply_text(f"Available Commands:\n{command_list}")
-
-
-def error_handler(update: object, context: CallbackContext) -> None:
-    """
-    Basic error handler to log exceptions.
-    """
-    logger.error(msg="Exception while handling an update:", exc_info=context.error)
-
-
-def main() -> None:
-    # Check that credit is intact before starting.
-    check_credit()
+    /getlink command (admin only):
     
-print_ascii_art()
-
-application = Application.builder().token(BOT_TOKEN).build()
-
-# Command handlers
-
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("getlink", getlink))
-application.add_handler(CommandHandler("firstbatch", firstbatch))
-application.add_handler(CommandHandler("lastbatch", lastbatch))
-application.add_handler(CommandHandler("broadcast", broadcast))
-application.add_handler(CommandHandler("stats", stats))
-application.add_handler(CommandHandler("ban", ban))
-application.add_handler(CommandHandler("premiummembers", premiummembers))
-application.add_handler(CommandHandler("restart", restart))
-application.add_handler(CommandHandler("language", language))
-
-# Add help command handler here
-application.add_handler(CommandHandler("help", help_command))  # Adding help command handler
-
-# Handler to capture batch files (only activated when in batch mode)
-application.add_handler(MessageHandler(filters.ALL & filters.ChatType.PRIVATE, batch_file_handler))
-
-application.add_error_handler(error_handler)
-
-application.run_polling()
-
-if __name__ == '__main__':
-   main()
+    • Must be used as a reply to a media message.
+      Forwards media to private DB channel and generates a unique token link.
+      Token link (can be shortened) is valid for 24 hours.
     
+      Example usage: Reply to a media message with /getlink.
+      Returns a unique link for accessing the file.
+    
+      Admins only can use this command.
+    
+      ---
+      This function forwards media safely while logging its storage status!
+    
+      ---
+    
+      Returns
+    
+      ---
+    
+    
+    
+    
+    
+    
+
