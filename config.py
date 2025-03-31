@@ -17,13 +17,13 @@ class CreditSystem:
         # Generate stable JSON-style hash
         json_str = "{%s}" % ", ".join(f'"{k}": "{v}"' for k,v in CREDIT_DATA)
         current_hash = hashlib.sha256(json_str.encode()).hexdigest()
-        
-        # Enhanced error detection
-        if not hasattr(Config, 'CREDIT_HASH') or Config.CREDIT_HASH != current_hash:
-            print(f"⛔ Modified: {getattr(Config, 'CREDIT_HASH', '')[:12]}... (Expected: {current_hash[:12]}...)")
-            print("Nice try Diddy!")
-            os._exit(1)  # Immediate exit without traceback
-
+        expected_hash = "42b820cce686dc91c5662998a904ce5e6016d3b7f921fa7ffb10ff2126e5950a"
+if not hasattr(Config, 'CREDIT_HASH') or Config.CREDIT_HASH != expected_hash:
+    print(f"🔥 Expected: {expected_hash}")
+    print(f"🔥 Got: {getattr(Config, 'CREDIT_HASH', 'None')}")
+    os._exit(1)
+      
+         
 class Config(CreditSystem):
     # Telegram API (Keep these first)
     API_ID = int(os.getenv("API_ID", 0))
