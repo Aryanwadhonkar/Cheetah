@@ -16,7 +16,6 @@ from telegram.ext import (
     filters,
 )
 from telegram.error import TelegramError
-from commands import get_command_list  # Importing the command list function
 
 # Load environment variables from .env file
 load_dotenv()
@@ -42,9 +41,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Global dictionaries for token management, banned users, and premium members.
-tokens = {}  # token -> { 'data': file_id or [file_ids], 'timestamp': unix_time, 'type': 'single'|'batch' }
+tokens = {}
 banned_users = set()
 premium_members = set()
+
+# Uptime tracking
+start_time = time.time()
 
 
 def check_credit():
@@ -63,20 +65,11 @@ def check_credit():
         sys.exit("Credit check failed")
 
 
-def print_ascii_art():
+def print_welcome_message():
     """
-    Prints the ASCII art with proper 'CHEETAH' spelling and developer credit.
+    Prints a welcome message for the bot.
     """
-    art = r"""
-   ____ _   _ ______ _______ _   _ _     
-  / ___| | | |  ____|__   __| \ | | |    
- | |   | |_| | |__     | |  |  \| | |    
- | |   |  _  |  __|    | |  | . ` | |    
- | |___| | | | |       | |  | |\  | |____
-  \____|_| |_|_|       |_|  |_| \_|______|
-    """
-    print(art)
-    print("Developer: @wleaksOwner | GitHub: Aryanwadhonkar/Cheetah")
+    print("Welcome to the Telegram Bot! Use /help to see available commands.")
 
 
 def shorten_url(long_url: str) -> str:
@@ -201,34 +194,82 @@ async def help_command(update: Update, context: CallbackContext) -> None:
 
     Sends a list of available commands with descriptions and authorization levels.
     """
-    command_list = get_command_list()
-    await update.message.reply_text(f"Available Commands:\n{command_list}")
+    
+   # Define available commands with descriptions and authorization levels
+   COMMANDS = {
+       "/start": {
+           "description": "Start interacting with the bot.",
+           "authorized": "All users"
+       },
+       "/getlink": {
+           "description": "Store a media file and generate a token link (admin only).",
+           "authorized": "Admins"
+       },
+       "/firstbatch": {
+           "description": "Start batch mode to store multiple files (admin only).",
+           "authorized": "Admins"
+       },
+       "/lastbatch": {
+           "description": "End batch mode and generate a token link for all stored files (admin only).",
+           "authorized": "Admins"
+       },
+       "/broadcast": {
+           "description": "Send a message to all users (admin only).",
+           "authorized": "Admins"
+       },
+       "/stats": {
+           "description": "Show bot statistics (admin only).",
+           "authorized": "Admins"
+       },
+       "/ban": {
+           "description": "Ban a user by their ID (admin only).",
+           "authorized": "Admins"
+       },
+       "/premiummembers": {
+           "description": "Manage premium members (admin only).",
+           "authorized": "Admins"
+       },
+       "/restart": {
+           "description": "Restart the bot (admin only).",
+           "authorized": "Admins"
+       },
+       "/language": {
+           "description": "Set your preferred language.",
+           "authorized": "All users"
+       }
+   }
+
+   command_list = ""
+   for command, info in COMMANDS.items():
+       command_list += f"{command} - {info['description']} (Authorized: {info['authorized']})\n"
+   
+   await update.message.reply_text(f"Available Commands:\n{command_list.strip()}")
 
 
 def error_handler(update: object, context: CallbackContext) -> None:
     """
     Basic error handler to log exceptions.
     """
-    logger.error(msg="Exception while handling an update:", exc_info=context.error)
+    
+   logger.error(msg="Exception while handling an update:", exc_info=context.error)
 
 
 def main() -> None:
-    # Check that credit is intact before starting.
-    check_credit()
-    
-print_ascii_art()
+   # Check that credit is intact before starting.
+   check_credit()
+   
+   print_welcome_message()
 
-application = Application.builder().token(BOT_TOKEN).build()
+   application = Application.builder().token(BOT_TOKEN).build()
 
-# Command handlers
+   # Command handlers
 
-application.add_handler(CommandHandler("/start", start))
-application.add_handler(CommandHandler("/help", help_command))  # Adding help command handler
+   application.add_handler(CommandHandler("start", start))
+   application.add_handler(CommandHandler("help", help_command))  # Adding help command handler
 
-application.add_error_handler(error_handler)
+   application.add_error_handler(error_handler)
 
-application.run_polling()
+   application.run_polling()
 
 if __name__ == '__main__':
    main()
-    
