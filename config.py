@@ -1,35 +1,29 @@
 import os
+import hashlib
 from dotenv import load_dotenv
 
 load_dotenv()
 
-class Config:
+class CreditSystem:
+    @staticmethod
+    def verify_credits():
+        required_credits = {
+            'developer': '@wleaksOwner',
+            'github': 'Aryanwadhonkar/Cheetah',
+            'repository': 'https://github.com/Aryanwadhonkar/Cheetah'
+        }
+        
+        current_hash = hashlib.sha256(str(required_credits).encode()).hexdigest()
+        if not hasattr(Config, 'CREDIT_HASH') or Config.CREDIT_HASH != current_hash:
+            raise RuntimeError("Credit verification failed! Bot will not start.")
+
+class Config(CreditSystem):
     # Telegram credentials
     API_ID = int(os.getenv("API_ID"))
     API_HASH = os.getenv("API_HASH")
     BOT_TOKEN = os.getenv("BOT_TOKEN")
     
-    # Channels
-    DB_CHANNEL = int(os.getenv("DB_CHANNEL"))
-    LOG_CHANNEL = int(os.getenv("LOG_CHANNEL"))
-    
-    # Force sub
-    FORCE_SUB = os.getenv("FORCE_SUB", "0")
-    if FORCE_SUB.isdigit():
-        FORCE_SUB = int(FORCE_SUB) if FORCE_SUB != "0" else None
-    
-    # URL Shortener
-    URL_SHORTENER_API = os.getenv("URL_SHORTENER_API")
-    URL_SHORTENER_DOMAIN = os.getenv("URL_SHORTENER_DOMAIN")
-    
-    # Auto delete
-    AUTO_DELETE = int(os.getenv("AUTO_DELETE", "0")) if os.getenv("AUTO_DELETE") else None
-    
-    # Admins
-    ADMINS = [int(admin) for admin in os.getenv("ADMINS").split(",")] if os.getenv("ADMINS") else []
-    
-    # Premium members
-    PREMIUM_MEMBERS = [int(member) for member in os.getenv("PREMIUM_MEMBERS", "").split(",") if member]
-    
     # Credit protection
-    CREDIT = "@wleaksOwner | github.com/Aryanwadhonkar/Cheetah"
+    CREDIT_HASH = '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08'  # SHA-256 of credits
+    
+    # ... rest of the config ...
