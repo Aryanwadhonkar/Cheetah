@@ -1,11 +1,12 @@
 import os
-import asyncio
-import logging
 from pyrogram import Client, filters, enums
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from config import Config
 from database import Database
 from shortener import shorten_url
+import asyncio
+import logging
+logging.basicConfig(level=logging.INFO)
 
 # Initialize
 app = Client(
