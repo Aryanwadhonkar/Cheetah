@@ -4,18 +4,10 @@ import uuid
 import time
 import logging
 import asyncio
-import requests
 from functools import wraps
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackContext,
-    filters,
-)
-from telegram.error import TelegramError
+from telegram.ext import Application, CommandHandler, CallbackContext
 
 # Load environment variables from .env file
 load_dotenv()
@@ -70,8 +62,9 @@ async def force_sub_check(update: Update, context: CallbackContext) -> bool:
                     reply_markup=InlineKeyboardMarkup(keyboard),
                 )
                 return False
-        except TelegramError:
-            await update.message.reply_text("Error verifying your subscription. Try again later.")
+        except Exception as e:
+            logger.error(f"Force sub check failed: {e}")
+            await update.message.reply_text("Error verifying subscription.")
             return False
     return True
 
@@ -92,7 +85,7 @@ async def start(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text("You are banned from using this bot.")
         return
 
-    # Maintain a record of users for broadcast or stats
+    # Maintain a record of users for stats
     context.bot_data.setdefault("users", set()).add(update.effective_user.id)
 
     keyboard = [[InlineKeyboardButton("Get 24-Hour Token", url="https://example.com")]]  # Replace with actual URL shortener link
@@ -107,108 +100,56 @@ async def getlink(update: Update, context: CallbackContext) -> None:
     """
     /getlink command (admin only).
 
-    Must be used as a reply to a media message.
-    Forwards media to private DB channel and generates a unique token link.
-    Token link (can be shortened) is valid for 24 hours.
+    Generates a unique token link for accessing media files.
+    """
     
-    Example usage: Reply to a media message with /getlink.
-    Returns a unique link for accessing the file.
-"""
-    
-# Check if there is a reply to a media message 
-if not update.message.reply_to_message: 
-   await update.message.reply_text("Reply to a media message with /getlink") 
-   return 
-    
-msg = update.message.reply_to_message
+    if not update.message.reply_to_message:
+        await update.message.reply_text("Reply to a media message with /getlink")
+        return
 
-# Extract file_id from document, photo or video 
-file_id = None 
-if msg.document: 
-   file_id = msg.document.file_id 
-elif msg.photo: 
-   file_id = msg.photo[-1].file_id 
-elif msg.video: 
-   file_id = msg.video.file_id 
-else: 
-   await update.message.reply_text("No valid media found in replied message.") 
-   return 
+    msg = update.message.reply_to_message
 
-try: 
-   forwarded = await context.bot.forward_message( 
-       chat_id=DB_CHANNEL, 
-       from_chat_id=msg.chat.id, 
-       message_id=msg.message_id 
-   ) 
+    file_id = None 
+    if msg.document: 
+        file_id = msg.document.file_id 
+    elif msg.photo: 
+        file_id = msg.photo[-1].file_id 
+    elif msg.video: 
+        file_id = msg.video.file_id 
+    else: 
+        await update.message.reply_text("No valid media found in replied message.") 
+        return 
 
-   token = str(uuid.uuid4())[:8] 
-   tokens[token] = {"data": forwarded.message_id, "timestamp": time.time(), "type": "single"} 
+    try: 
+        forwarded = await context.bot.forward_message( 
+            chat_id=DB_CHANNEL, 
+            from_chat_id=msg.chat.id, 
+            message_id=msg.message_id 
+        ) 
 
-   special_link = f"https://t.me/{context.bot.username}?start={token}" 
-   special_link = shorten_url(special_link) 
+        token = str(uuid.uuid4())[:8] 
+        tokens[token] = {"data": forwarded.message_id, "timestamp": time.time(), "type": "single"} 
 
-   await update.message.reply_text(f"File stored!\nToken Link: {special_link}", disable_web_page_preview=True) 
+        special_link = f"https://t.me/{context.bot.username}?start={token}" 
+        await update.message.reply_text(f"File stored!\nToken Link: {special_link}", disable_web_page_preview=True) 
 
-   await context.bot.send_message( 
-       chat_id=LOG_CHANNEL, 
-       text=f"Admin {update.effective_user.id} stored a file. Token: {token}" 
-   ) 
+        await context.bot.send_message( 
+            chat_id=LOG_CHANNEL, 
+            text=f"Admin {update.effective_user.id} stored a file. Token: {token}" 
+        ) 
 
-except TelegramError as e: 
-   logger.error("Error in /getlink: " + str(e)) 
-   await update.message.reply_text("Failed to store file due to an error.")
+    except Exception as e: 
+        logger.error(f"Error in /getlink: {e}") 
+        await update.message.reply_text("Failed to store file due to an error.")
 
-@admin_only
-async def firstbatch(update: Update, context: CallbackContext) -> None:
-     """
-     /firstbatch command (admin only):
-     
-     • Initiates batch mode for storing multiple files.
-     """
-     context.user_data["batch_files"] = []
-     await update.message.reply_text("Batch mode started. Send your files and then use /lastbatch to complete.")
-
-@admin_only
-async def lastbatch(update: Update, context: CallbackContext) -> None:
-     """
-     /lastbatch command (admin only):
-     
-     • Ends batch mode. Forwards all cached files to the DB channel and generates one token link.
-     """
-     batch_files = context.user_data.get("batch_files", [])
-     if not batch_files:
-         await update.message.reply_text("No files received for batch.")
-         return
-    
-     batch_msg_ids = []
-     for file_msg in batch_files:
-         try:
-             forwarded = await context.bot.forward_message(
-                 chat_id=DB_CHANNEL,
-                 from_chat_id=file_msg.chat.id,
-                 message_id=file_msg.message_id
-             )
-             batch_msg_ids.append(forwarded.message_id)
-         except TelegramError as e:
-             logger.error("Error forwarding batch file: " + str(e))
-             
-     token = str(uuid.uuid4())[:8]
-     tokens[token] = {"data": batch_msg_ids, "timestamp": time.time(), "type": "batch"}
-     special_link = f"https://t.me/{context.bot.username}?start={token}"
-     special_link = shorten_url(special_link)
-     await update.message.reply_text(f"Batch stored!\nToken Link: {special_link}", disable_web_page_preview=True)
-     await context.bot.send_message(
-         chat_id=LOG_CHANNEL,
-         text=f"Admin {update.effective_user.id} stored a batch. Token: {token}"
-     )
-     context.user_data["batch_files"] = []  # Reset batch mode
 
 @admin_only
 async def broadcast(update: Update, context: CallbackContext) -> None:
      """
-     /broadcast command (admin only):
-     
-     • Broadcasts a provided message to all users registered with the bot.
+     /broadcast command (admin only).
+
+     Sends a message to all users registered with the bot.
+     Includes an optional button.
      """
      if not context.args:
          await update.message.reply_text("Provide a message to broadcast.")
@@ -223,17 +164,18 @@ async def broadcast(update: Update, context: CallbackContext) -> None:
              keyboard_option = [[InlineKeyboardButton(text="Click Here", url="https://example.com")]]  # Example button; replace with actual link
              await context.bot.send_message(user_id, message, reply_markup=InlineKeyboardMarkup(keyboard_option))
              sent_count += 1
-         except TelegramError as e:
-             logger.error(f"Error sending broadcast to {user_id}: " + str(e))
+         except Exception as e:
+             logger.error(f"Error sending broadcast to {user_id}: {e}")
              
      await update.message.reply_text(f"Broadcast sent to {sent_count} users.")
+
 
 @admin_only 
 async def stats(update: Update, context: CallbackContext) -> None: 
       """ 
       /stats command (admin only): 
         
-      • Shows bot statistics such as total users and active tokens. 
+      Displays bot statistics such as total users and active tokens. 
       """ 
         
       total_users = len(context.bot_data.get("users", set())) 
@@ -243,74 +185,6 @@ async def stats(update: Update, context: CallbackContext) -> None:
         
       await update.message.reply_text(stats_text)
 
-@admin_only 
-async def ban(update: Update, context: CallbackContext) -> None: 
-      """ 
-      /ban command (admin only): 
-        
-      • Bans a user by their Telegram ID. 
-      Usage: /ban <user_id> 
-      """ 
-        
-      if not context.args: 
-          await update.message.reply_text("Provide a user ID to ban.") 
-          return 
-        
-      try: 
-          user_id = int(context.args[0]) 
-          banned_users.add(user_id) 
-          await update.message.reply_text(f"User {user_id} has been banned.") 
-        
-          await context.bot.send_message( 
-              chat_id=LOG_CHANNEL, 
-              text=f"User {user_id} banned by admin {update.effective_user.id}" 
-          ) 
-        
-      except ValueError: 
-          await update.message.reply_text("Invalid user ID.")
-
-@admin_only  
-async def premiummembers(update: Update, context: CallbackContext) -> None:
-
-      """  
-      /premiummembers command (admin only):  
-        
-      • Assigns or removes premium membership.  
-      Usage: /premiummembers add <user_id> or /premiummembers remove <user_id>  
-      Premium members get files without needing a token.  
-      """  
-
-      if len(context.args) < 2:
-
-          await update.message.reply_text("Usage: /premiummembers add|remove <user_id>")  
-
-          return  
-
-      action = context.args[0].lower()  
-
-      try:
-
-          user_id = int(context.args[1])  
-
-          if action == "add":  
-
-              premium_members.add(user_id)
-
-              await update.message.reply_text(f"User {user_id} is now a premium member.")  
-
-          elif action == "remove":
-
-              premium_members.discard(user_id)
-
-              await update.message.reply_text(f"User {user_id} has been removed from premium members.")  
-
-          else:
-
-              await update.message.reply_text("Invalid action. Use add or remove.")  
-
-      except ValueError:
-
-          await update.message.reply_text("Invalid user ID.")
 
 @admin_only  
 async def restart(update: Update, context: CallbackContext) -> None:
@@ -318,34 +192,13 @@ async def restart(update: Update, context: CallbackContext) -> None:
       """  
       /restart command (admin only):  
         
-      • Restarts the bot.  
+      Restarts the bot.  
       """  
         
       await update.message.reply_text("Restarting bot...")  
         
-      await context.bot.send_message(LOG_CHANNEL, f"Bot restarted by admin {update.effective_user.id}")  
-        
       os.execv(sys.executable, [sys.executable] + sys.argv)
 
-async def language(update: Update, context: CallbackContext) -> None:
-
-      """  
-      /language command available to everyone:
-
-      • Allows the user to set their preferred language.  
-      """  
-
-      if not context.args:
-
-          await update.message.reply_text("Usage: /language <language_code>")  
-
-          return  
-
-      lang = context.args[0].lower()  
-
-      context.user_data["language"] = lang  
-
-      await update.message.reply_text(f"Language set to {lang}.")
 
 def error_handler(update: object, context: CallbackContext) -> None:
    """
@@ -353,28 +206,22 @@ def error_handler(update: object, context: CallbackContext) -> None:
    """
    logger.error(msg="Exception while handling an update:", exc_info=context.error)
 
-def main() -> None:
-   print_welcome_message()
 
+def main() -> None:
    application = Application.builder().token(BOT_TOKEN).build()
 
    # Command handlers
-   application.add_handler(CommandHandler("/start", start))
-   application.add_handler(CommandHandler("/help", help_command))
-   application.add_handler(CommandHandler("/getlink", getlink))
-   application.add_handler(CommandHandler("/firstbatch", firstbatch))
-   application.add_handler(CommandHandler("/lastbatch", lastbatch))
-   application.add_handler(CommandHandler("/broadcast", broadcast))
-   application.add_handler(CommandHandler("/stats", stats))
-   application.add_handler(CommandHandler("/ban", ban))
-   application.add_handler(CommandHandler("/premiummembers", premiummembers))
-   application.add_handler(CommandHandler("/restart", restart))
-   application.add_handler(CommandHandler("/language", language))
+   application.add_handler(CommandHandler("start", start))
+   application.add_handler(CommandHandler("getlink", getlink))
+   application.add_handler(CommandHandler("broadcast", broadcast))
+   application.add_handler(CommandHandler("stats", stats))
+   application.add_handler(CommandHandler("restart", restart))
 
    application.add_error_handler(error_handler)
 
    application.run_polling()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
    main()
+    
