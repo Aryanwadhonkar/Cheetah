@@ -1,7 +1,10 @@
+GNU nano 8.3                                                 database.py
+import asyncio
 import sqlite3
 from datetime import datetime, timedelta
 from pyrogram import Client
 import logging
+logging.basicConfig(level=logging.INFO)
 
 class Database:
     def __init__(self, bot: Client):
