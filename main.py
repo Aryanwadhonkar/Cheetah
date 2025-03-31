@@ -4,6 +4,7 @@ import uuid
 import time
 import logging
 import asyncio
+import requests
 from functools import wraps
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -18,6 +19,8 @@ LOG_CHANNEL = int(os.getenv("LOG_CHANNEL"))
 FORCE_SUB = os.getenv("FORCE_SUB", "0")
 ADMIN_IDS = [int(x.strip()) for x in os.getenv("ADMINS", "").split(",") if x.strip()]
 AUTO_DELETE_TIME = int(os.getenv("AUTO_DELETE_TIME", "0"))  # in minutes
+URL_SHORTENER_DOMAIN = os.getenv("URL_SHORTENER_DOMAIN")
+URL_SHORTENER_API = os.getenv("URL_SHORTENER_API")
 
 # Setup logging
 logging.basicConfig(
@@ -69,6 +72,25 @@ async def force_sub_check(update: Update, context: CallbackContext) -> bool:
     return True
 
 
+def shorten_url(long_url: str) -> str:
+    """
+    Shortens a given URL using the provided URL shortener API details.
+    If it fails, returns the original URL.
+    """
+    try:
+        payload = {"url": long_url}
+        headers = {"Authorization": f"Bearer {URL_SHORTENER_API}"}
+        response = requests.post(f"https://{URL_SHORTENER_DOMAIN}/api", json=payload, headers=headers)
+        if response.status_code == 200:
+            return response.json().get("short_url", long_url)
+        else:
+            logger.error(f"Failed to shorten URL. Status code: {response.status_code}")
+            return long_url
+    except Exception as e:
+        logger.error(f"Error shortening URL: {e}")
+        return long_url
+
+
 async def start(update: Update, context: CallbackContext) -> None:
     """
     The /start command handler.
@@ -88,59 +110,15 @@ async def start(update: Update, context: CallbackContext) -> None:
     # Maintain a record of users for stats
     context.bot_data.setdefault("users", set()).add(update.effective_user.id)
 
-    keyboard = [[InlineKeyboardButton("Get 24-Hour Token", url="https://example.com")]]  # Replace with actual URL shortener link
+    # Generate a shortened URL for token generation (example purpose)
+    long_url = f"https://example.com/get-token?user_id={update.effective_user.id}"
+    short_url = shorten_url(long_url)
+
+    keyboard = [[InlineKeyboardButton("Get 24-Hour Token", url=short_url)]]
     await update.message.reply_text(
         "Welcome! Click the button below to get your 24-hour token.",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
-
-
-@admin_only
-async def getlink(update: Update, context: CallbackContext) -> None:
-    """
-    /getlink command (admin only).
-
-    Generates a unique token link for accessing media files.
-    """
-    
-    if not update.message.reply_to_message:
-        await update.message.reply_text("Reply to a media message with /getlink")
-        return
-
-    msg = update.message.reply_to_message
-
-    file_id = None 
-    if msg.document: 
-        file_id = msg.document.file_id 
-    elif msg.photo: 
-        file_id = msg.photo[-1].file_id 
-    elif msg.video: 
-        file_id = msg.video.file_id 
-    else: 
-        await update.message.reply_text("No valid media found in replied message.") 
-        return 
-
-    try: 
-        forwarded = await context.bot.forward_message( 
-            chat_id=DB_CHANNEL, 
-            from_chat_id=msg.chat.id, 
-            message_id=msg.message_id 
-        ) 
-
-        token = str(uuid.uuid4())[:8] 
-        tokens[token] = {"data": forwarded.message_id, "timestamp": time.time(), "type": "single"} 
-
-        special_link = f"https://t.me/{context.bot.username}?start={token}" 
-        await update.message.reply_text(f"File stored!\nToken Link: {special_link}", disable_web_page_preview=True) 
-
-        await context.bot.send_message( 
-            chat_id=LOG_CHANNEL, 
-            text=f"Admin {update.effective_user.id} stored a file. Token: {token}" 
-        ) 
-
-    except Exception as e: 
-        logger.error(f"Error in /getlink: {e}") 
-        await update.message.reply_text("Failed to store file due to an error.")
 
 
 @admin_only
@@ -149,7 +127,7 @@ async def broadcast(update: Update, context: CallbackContext) -> None:
      /broadcast command (admin only).
 
      Sends a message to all users registered with the bot.
-     Includes an optional button.
+     Includes an optional button with shortened URLs.
      """
      if not context.args:
          await update.message.reply_text("Provide a message to broadcast.")
@@ -161,43 +139,17 @@ async def broadcast(update: Update, context: CallbackContext) -> None:
     
      for user_id in users:
          try:
-             keyboard_option = [[InlineKeyboardButton(text="Click Here", url="https://example.com")]]  # Example button; replace with actual link
+             # Example of broadcasting with shortened link in button
+             long_url = f"https://example.com/promo?user_id={user_id}"
+             short_url = shorten_url(long_url)
+
+             keyboard_option = [[InlineKeyboardButton(text="Click Here", url=short_url)]]
              await context.bot.send_message(user_id, message, reply_markup=InlineKeyboardMarkup(keyboard_option))
              sent_count += 1
          except Exception as e:
              logger.error(f"Error sending broadcast to {user_id}: {e}")
              
      await update.message.reply_text(f"Broadcast sent to {sent_count} users.")
-
-
-@admin_only 
-async def stats(update: Update, context: CallbackContext) -> None: 
-      """ 
-      /stats command (admin only): 
-        
-      Displays bot statistics such as total users and active tokens. 
-      """ 
-        
-      total_users = len(context.bot_data.get("users", set())) 
-      active_tokens = len(tokens) 
-        
-      stats_text = f"Total Users: {total_users}\nActive Tokens: {active_tokens}" 
-        
-      await update.message.reply_text(stats_text)
-
-
-@admin_only  
-async def restart(update: Update, context: CallbackContext) -> None:
-
-      """  
-      /restart command (admin only):  
-        
-      Restarts the bot.  
-      """  
-        
-      await update.message.reply_text("Restarting bot...")  
-        
-      os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
 def error_handler(update: object, context: CallbackContext) -> None:
@@ -212,10 +164,7 @@ def main() -> None:
 
    # Command handlers
    application.add_handler(CommandHandler("start", start))
-   application.add_handler(CommandHandler("getlink", getlink))
    application.add_handler(CommandHandler("broadcast", broadcast))
-   application.add_handler(CommandHandler("stats", stats))
-   application.add_handler(CommandHandler("restart", restart))
 
    application.add_error_handler(error_handler)
 
@@ -224,4 +173,3 @@ def main() -> None:
 
 if __name__ == "__main__":
    main()
-    
