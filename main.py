@@ -185,4 +185,50 @@ def admin_only(func):
     """
     Decorator to restrict command access to admins.
     """
+    @wraps(func)
+    async def wrapped(update: Update, context: CallbackContext):
+        if update.effective_user.id not in ADMIN_IDS:
+            await update.message.reply_text("You are not authorized to use this command.")
+            return
+        return await func(update, context)
+
+    return wrapped
+
+
+async def help_command(update: Update, context: CallbackContext) -> None:
+    """
+    /help command for all users.
+
+    Sends a list of available commands with descriptions and authorization levels.
+    """
+    command_list = get_command_list()
+    await update.message.reply_text(f"Available Commands:\n{command_list}")
+
+
+def error_handler(update: object, context: CallbackContext) -> None:
+    """
+    Basic error handler to log exceptions.
+    """
+    logger.error(msg="Exception while handling an update:", exc_info=context.error)
+
+
+def main() -> None:
+    # Check that credit is intact before starting.
+    check_credit()
+    
+print_ascii_art()
+
+application = Application.builder().token(BOT_TOKEN).build()
+
+# Command handlers
+
+application.add_handler(CommandHandler("/start", start))
+application.add_handler(CommandHandler("/help", help_command))  # Adding help command handler
+
+application.add_error_handler(error_handler)
+
+application.run_polling()
+
+if __name__ == '__main__':
+   main()
     
