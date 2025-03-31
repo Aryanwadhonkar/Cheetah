@@ -8,6 +8,17 @@ import inspect
 from pyrogram import Client, idle, filters
 from config import Config
 
+#!/usr/bin/env python3
+print("🛠️ DEBUG MODE ACTIVATED")
+import os
+print("✅ OS imported")
+from dotenv import load_dotenv
+print("✅ dotenv imported")
+load_dotenv()
+print("✅ .env loaded")
+print(f"CREDIT_HASH={os.getenv('CREDIT_HASH')}")
+print(f"BOT_TOKEN exists? {'BOT_TOKEN' in os.environ}")
+
 # ==================== CREDIT PROTECTION ====================
 def validate_credits():
     required = {
