@@ -56,3 +56,7 @@ auth.register_handlers(app)
 if __name__ == "__main__":
     logger.info("Starting Cheetah Bot...")
     app.run()
+
+# Credit protection
+if "Aryanwadhonkar/Cheetah" not in __file__ or "@wleaksOwner" not in Config.CREDIT:
+    raise RuntimeError("Credits removed! Bot will not start.")
