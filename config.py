@@ -7,22 +7,25 @@ load_dotenv()
 class CreditSystem:
     @staticmethod
     def verify():
-        required = {
+        # Critical - Do not modify these values
+        CREDIT_DATA = {
             'developer': '@wleaksOwner',
-            'github': 'Aryanwadhonkar/Cheetah'
+            'github': 'Aryanwadhonkar/Cheetah',
+            'repository': 'https://github.com/Aryanwadhonkar/Cheetah'
         }
-        # Calculate current hash of required credits
-        current_hash = hashlib.sha256(str(required).encode()).hexdigest()
         
-        # This is the expected hash - UPDATE THIS WITH YOUR NEW HASH
-        expected_hash = "d77629bd9696cd8efcb27fdcd20d4f8e21132213e80cebeb5e89a02ec218416e"  # Replace with new hash
+        # Generate current hash
+        current_hash = hashlib.sha256(str(CREDIT_DATA).encode()).hexdigest()
         
-        if not hasattr(Config, 'CREDIT_HASH') or Config.CREDIT_HASH != expected_hash:
-            print(f"Credit hash mismatch!\nExpected: {expected_hash}\nGot: {getattr(Config, 'CREDIT_HASH', 'None')}")
-            raise RuntimeError("Credit verification failed!")
+        # Verify against stored hash
+        if not hasattr(Config, 'CREDIT_HASH') or Config.CREDIT_HASH != current_hash:
+            print(f"NICE TRY DIDDY!")
+            print(f"Expected: {current_hash}")
+            print(f"Got: {getattr(Config, 'CREDIT_HASH', 'None')}")
+            raise RuntimeError("Credit verification failed - Bot stopped")
 
 class Config(CreditSystem):
-    # Telegram
+    # Telegram API
     API_ID = int(os.getenv("API_ID", 0))
     API_HASH = os.getenv("API_HASH", "")
     BOT_TOKEN = os.getenv("BOT_TOKEN", "")
@@ -31,25 +34,17 @@ class Config(CreditSystem):
     DB_CHANNEL = int(os.getenv("DB_CHANNEL", 0))
     LOG_CHANNEL = int(os.getenv("LOG_CHANNEL", 0))
     
-    # Credits
-    CREDIT_HASH = 'd3a8bd2e0f1b39aa2322d9274e5a5e0a6e5b5e5e'  # SHA-1 of credits
+    # Credits (DO NOT MODIFY)
     CREDIT = "@wleaksOwner | github.com/Aryanwadhonkar/Cheetah"
+    CREDIT_HASH = os.getenv("CREDIT_HASH", "")
     
-    # Force Sub
+    # Other settings
     FORCE_SUB = os.getenv("FORCE_SUB", "0")
-    
-    # Shortener
     URL_SHORTENER_API = os.getenv("URL_SHORTENER_API", "")
     URL_SHORTENER_DOMAIN = os.getenv("URL_SHORTENER_DOMAIN", "")
-    
-    # Auto Delete
     AUTO_DELETE = int(os.getenv("AUTO_DELETE", 0))
-    
-    # Admins
     ADMINS = [int(admin) for admin in os.getenv("ADMINS", "").split(",") if admin]
-    
-    # Premium
     PREMIUM_MEMBERS = [int(member) for member in os.getenv("PREMIUM_MEMBERS", "").split(",") if member]
 
-# Verify on import
+# Verify credits on import
 Config.verify()
