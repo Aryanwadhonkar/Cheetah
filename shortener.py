@@ -2,7 +2,7 @@ import requests
 from config import Config
 
 def shorten_url(url: str) -> str:
-    if not Config.URL_SHORTENER_API or not Config.URL_SHORTENER_DOMAIN:
+    if not Config.URL_SHORTENER_API:
         return url
     
     try:
