@@ -43,16 +43,10 @@ logger = logging.getLogger(__name__)
 # Display credits
 def show_credits():
     credit_art = r"""
-   _____ _    _ ______ _____  _   _   _____ ______ 
-  / ____| |  | |  ____|  __ \| \ | | / ____|  ____|
- | |    | |__| | |__  | |__) |  \| | |  __| |__   
- | |    |  __  |  __| |  ___/| . ` | | |_ |  __|  
- | |____| |  | | |____| |    | |\  | |__| | |____ 
-  \_____|_|  |_|______|_|    |_| \_|\_____|______|
-  
-  >> DEVELOPED BY @wleaksOwner <<
-  >> GITHUB: Aryanwadhonkar/Cheetah <<
-    """
+    >> DEVELOPED BY @wleaksOwner <<
+    >> GITHUB: Aryanwadhonkar/Cheetah <<
+   >> REPO: https://github.com/Aryanwadhonkar/Cheetah 
+   <<"""
     print(credit_art)
 
 show_credits()
