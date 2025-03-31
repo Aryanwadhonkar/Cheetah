@@ -1,4 +1,4 @@
 pyrogram>=2.0.0
 python-dotenv
 requests
-TgCrypto
+shortener-api-library==1.2 
