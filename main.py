@@ -24,15 +24,8 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 DB_CHANNEL = int(os.getenv("DB_CHANNEL"))
 LOG_CHANNEL = int(os.getenv("LOG_CHANNEL"))
 FORCE_SUB = os.getenv("FORCE_SUB", "0")
-if FORCE_SUB != "0":
-    try:
-        FORCE_SUB = int(FORCE_SUB)
-    except Exception:
-        FORCE_SUB = FORCE_SUB.strip()
-AUTO_DELETE_TIME = int(os.getenv("AUTO_DELETE_TIME", "0"))  # in minutes
-URL_SHORTENER_DOMAIN = os.getenv("URL_SHORTENER_DOMAIN")
-URL_SHORTENER_API = os.getenv("URL_SHORTENER_API")
 ADMIN_IDS = [int(x.strip()) for x in os.getenv("ADMINS", "").split(",") if x.strip()]
+AUTO_DELETE_TIME = int(os.getenv("AUTO_DELETE_TIME", "0"))  # in minutes
 
 # Setup logging
 logging.basicConfig(
@@ -49,29 +42,18 @@ premium_members = set()
 start_time = time.time()
 
 
-def print_welcome_message():
+def admin_only(func):
     """
-    Prints a welcome message for the bot.
+    Decorator to restrict command access to admins.
     """
-    print("Welcome to the Telegram Bot! Use /help to see available commands.")
+    @wraps(func)
+    async def wrapped(update: Update, context: CallbackContext):
+        if update.effective_user.id not in ADMIN_IDS:
+            await update.message.reply_text("You are not authorized to use this command.")
+            return
+        return await func(update, context)
 
-
-def shorten_url(long_url: str) -> str:
-    """
-    Shortens a given URL using the provided URL shortener API details.
-    If it fails, returns the original URL.
-    """
-    try:
-        payload = {"url": long_url, "domain": URL_SHORTENER_DOMAIN}
-        headers = {"Authorization": f"Bearer {URL_SHORTENER_API}"}
-        response = requests.post(f"https://{URL_SHORTENER_DOMAIN}/api", json=payload, headers=headers, timeout=10)
-        if response.status_code == 200:
-            return response.json().get("short_url", long_url)
-        else:
-            return long_url
-    except Exception as e:
-        logger.error("URL shortening failed: " + str(e))
-        return long_url
+    return wrapped
 
 
 async def force_sub_check(update: Update, context: CallbackContext) -> bool:
@@ -97,8 +79,8 @@ async def force_sub_check(update: Update, context: CallbackContext) -> bool:
 async def start(update: Update, context: CallbackContext) -> None:
     """
     The /start command handler.
-    
-    • If no argument is provided, shows a welcome message and a button to get a 24-hour token.
+
+    Sends a welcome message and provides a button to get a 24-hour token.
     """
     
     if FORCE_SUB != "0":
@@ -113,41 +95,24 @@ async def start(update: Update, context: CallbackContext) -> None:
     # Maintain a record of users for broadcast or stats
     context.bot_data.setdefault("users", set()).add(update.effective_user.id)
 
-    # Inform user about getting their token and provide a button to shorten URL for token generation
-    keyboard = [[InlineKeyboardButton("Get 24-Hour Token", url="https://example.com/shorten-url")]]  # Replace with actual URL shortener link
+    keyboard = [[InlineKeyboardButton("Get 24-Hour Token", url="https://example.com")]]  # Replace with actual URL shortener link
     await update.message.reply_text(
         "Welcome! Click the button below to get your 24-hour token.",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 
-def admin_only(func):
-    """
-    Decorator to restrict command access to admins.
-    """
-    @wraps(func)
-    async def wrapped(update: Update, context: CallbackContext):
-        if update.effective_user.id not in ADMIN_IDS:
-            await update.message.reply_text("You are not authorized to use this command.")
-            return
-        return await func(update, context)
-
-    return wrapped
-
-
 @admin_only
 async def getlink(update: Update, context: CallbackContext) -> None:
     """
-    /getlink command (admin only):
+    /getlink command (admin only).
+
+    Must be used as a reply to a media message.
+    Forwards media to private DB channel and generates a unique token link.
+    Token link (can be shortened) is valid for 24 hours.
     
-    • Must be used as a reply to a media message.
-      Forwards media to private DB channel and generates a unique token link.
-      Token link (can be shortened) is valid for 24 hours.
-    
-      Example usage: Reply to a media message with /getlink.
-      Returns a unique link for accessing the file.
-    
-      Admins only can use this command.
+    Example usage: Reply to a media message with /getlink.
+    Returns a unique link for accessing the file.
 """
     
 # Check if there is a reply to a media message 
@@ -255,8 +220,8 @@ async def broadcast(update: Update, context: CallbackContext) -> None:
     
      for user_id in users:
          try:
-             keyboard = [[InlineKeyboardButton(text="Click Here", url="https://example.com")] ]  # Example button; replace with actual link
-             await context.bot.send_message(user_id, message, reply_markup=InlineKeyboardMarkup(keyboard))
+             keyboard_option = [[InlineKeyboardButton(text="Click Here", url="https://example.com")]]  # Example button; replace with actual link
+             await context.bot.send_message(user_id, message, reply_markup=InlineKeyboardMarkup(keyboard_option))
              sent_count += 1
          except TelegramError as e:
              logger.error(f"Error sending broadcast to {user_id}: " + str(e))
@@ -413,4 +378,3 @@ def main() -> None:
 
 if __name__ == '__main__':
    main()
-    
