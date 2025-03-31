@@ -8,9 +8,7 @@ import inspect
 from pyrogram import Client, idle, filters
 from config import Config
 
-#!/usr/bin/env python3
 print("🛠️ DEBUG MODE ACTIVATED")
-import os
 print("✅ OS imported")
 from dotenv import load_dotenv
 print("✅ dotenv imported")
