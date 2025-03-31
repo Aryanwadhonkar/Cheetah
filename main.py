@@ -185,42 +185,4 @@ def admin_only(func):
     """
     Decorator to restrict command access to admins.
     """
-    @wraps(func)
-    async def wrapped(update: Update, context: CallbackContext):
-        if update.effective_user.id not in ADMIN_IDS:
-            await update.message.reply_text("You are not authorized to use this command.")
-            return
-        return await func(update, context)
-
-    return wrapped
-
-
-@admin_only
-async def getlink(update: Update, context: CallbackContext) -> None:
-    """
-    /getlink command (admin only):
     
-    • Must be used as a reply to a media message.
-      Forwards media to private DB channel and generates a unique token link.
-      Token link (can be shortened) is valid for 24 hours.
-    
-      Example usage: Reply to a media message with /getlink.
-      Returns a unique link for accessing the file.
-    
-      Admins only can use this command.
-    
-      ---
-      This function forwards media safely while logging its storage status!
-    
-      ---
-    
-      Returns
-    
-      ---
-    
-    
-    
-    
-    
-    
-
