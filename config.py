@@ -15,7 +15,7 @@ class CreditSystem:
         current_hash = hashlib.sha256(str(required).encode()).hexdigest()
         
         # This is the expected hash - UPDATE THIS WITH YOUR NEW HASH
-        expected_hash = "d3a8bd2e0f1b39aa2322d9274e5a5e0a6e5b5e5e"  # Replace with new hash
+        expected_hash = "d77629bd9696cd8efcb27fdcd20d4f8e21132213e80cebeb5e89a02ec218416e"  # Replace with new hash
         
         if not hasattr(Config, 'CREDIT_HASH') or Config.CREDIT_HASH != expected_hash:
             print(f"Credit hash mismatch!\nExpected: {expected_hash}\nGot: {getattr(Config, 'CREDIT_HASH', 'None')}")
