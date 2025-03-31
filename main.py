@@ -69,7 +69,7 @@ def display_credits():
   
   >> DEVELOPED BY @wleaksOwner <<
   >> GITHUB: Aryanwadhonkar/Cheetah <<
-  >> HASH: d77629bd9696cd8efcb27fdcd20d4f8e21132213e80cebeb5e89a02ec218416e <<
+  >> HASH: 0f11bfabfc89a34bf5e08c2b9c3e6f53eb9ab755078d810e7044859e0b8bc6bf <<
     """
     print(credit_art)
 
