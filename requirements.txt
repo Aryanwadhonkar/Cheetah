@@ -2,4 +2,4 @@ pyrogram>=2.0.0
 python-dotenv
 requests
 python-magic
-shortener-api==1.2
+pyshorteners==1.0.1  # remove line if u dont wanna add shortner func
