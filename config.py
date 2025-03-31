@@ -12,7 +12,10 @@ class CreditSystem:
             'github': 'Aryanwadhonkar/Cheetah'
         }
         current_hash = hashlib.sha256(str(required).encode()).hexdigest()
-        if not hasattr(Config, 'CREDIT_HASH') or Config.CREDIT_HASH != current_hash:
+        expected_hash = "d77629bd9696cd8efcb27fdcd20d4f8e21132213e80cebeb5e89a02ec218416e" 
+        
+        if not hasattr(Config, 'CREDIT_HASH') or Config.CREDIT_HASH != expected_hash:
+            print(f"Credit hash mismatch!\nExpected: {expected_hash}\nGot: {getattr(Config, 'CREDIT_HASH', 'None')}")
             raise RuntimeError("Credit verification failed!")
 
 class Config(CreditSystem):
