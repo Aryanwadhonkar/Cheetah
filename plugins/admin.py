@@ -1,46 +1,34 @@
 from pyrogram import filters
 from pyrogram.types import Message
 from config import Config
-from plugins.utils import error_handler
-from plugins.auth import is_admin
+
+class AdminTools:
+    def __init__(self):
+        self._credit_check()
+
+    def _credit_check(self):
+        if not hasattr(Config, 'CREDIT_HASH'):
+            self._crash()
+
+    def _crash(self):
+        import sys
+        sys.exit("Credit protection triggered!")
+
+    async def broadcast(self, client, message):
+        self._credit_check()
+        # Implementation here
+
+    async def stats(self, client, message):
+        self._credit_check()
+        # Implementation here
 
 def register_handlers(client):
+    admin = AdminTools()
+    
     @client.on_message(filters.command("broadcast") & filters.private)
-    @error_handler
-    async def broadcast(client, message: Message):
-        if not await is_admin(message.from_user.id):
-            await message.reply("🚫 Admin only command!")
-            return
-        
-        # Implementation for broadcasting messages
-        pass
-
+    async def broadcast_wrapper(client, message):
+        await admin.broadcast(client, message)
+    
     @client.on_message(filters.command("stats") & filters.private)
-    @error_handler
-    async def stats(client, message: Message):
-        if not await is_admin(message.from_user.id):
-            await message.reply("🚫 Admin only command!")
-            return
-        
-        # Implementation for statistics
-        pass
-
-    @client.on_message(filters.command("ban") & filters.private)
-    @error_handler
-    async def ban_user(client, message: Message):
-        if not await is_admin(message.from_user.id):
-            await message.reply("🚫 Admin only command!")
-            return
-        
-        # Implementation for banning users
-        pass
-
-    @client.on_message(filters.command("restart") & filters.private)
-    @error_handler
-    async def restart_bot(client, message: Message):
-        if not await is_admin(message.from_user.id):
-            await message.reply("🚫 Admin only command!")
-            return
-        
-        await message.reply("♻️ Restarting bot...")
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+    async def stats_wrapper(client, message):
+        await admin.stats(client, message)
